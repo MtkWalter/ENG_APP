@@ -1,6 +1,6 @@
 # Milo 英文練習 1.8.0
 
-[下載 1.8.0 APK](https://github.com/MtkWalter/ENG_APP/raw/refs/heads/apk-download/Milo-English-v1.8.0.apk)
+[下載 1.8.0 APK](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v1.8.0.apk)
 
 可直接覆蓋更新，與 1.7.0 使用相同簽章。開啟 App 會直接顯示 ChatGPT 網頁；已移除原生對話同步泡泡與「網頁／對話」切換。
 
