@@ -1,29 +1,35 @@
-# Milo 1.9.1 語音介面精簡
+# Milo 2.0.0 單字 KK／中文小視窗與語音排版
 
-[下載 1.9.1 APK](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v1.9.1.apk)
+[OPPO Reno13 Pro 請下載這個 APK（arm64，約 24 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.0-arm64.apk)
 
-與 1.9.0 相同簽章，可直接覆蓋更新。版本代碼 15，Android 8.0 以上。
+[其他架構可下載通用 APK（約 71 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.0.apk)
 
-## 只保留需要的操作
+版本代碼 16，Android 8.0 以上，與 1.9.1 相同簽章，可直接覆蓋更新。
 
-- App 上方只有「新對話、A−、A+」，不顯示標題、網址、分享、選單、翻譯按鈕或文字百分比。文字每次調整 10%，範圍 80%–160%，設定會保存。
-- ChatGPT 網頁下方以麥克風及語音按鈕操作。文字輸入框、附件、模型選擇及頁尾提示隱藏，語音需要的送出及停止狀態仍可操作。
-- 修正語音按鈕切換成停止、延遲載入或重新產生時，輸入框和模型選單可能重新顯示的情況。補上已知的無 form 輸入列、只標記識別碼的語音按鈕，以及輸入列外的模型選單。
+## 點單字直接顯示 KK 與翻譯
 
-只調整顯示，保留網站內部聽寫節點及原有按鈕事件，不呼叫網站音訊 API。對話內容及登入輸入欄位保留。沿用語音球隱藏、前景亮屏與 Android 麥克風權限重用。此畫面處理僅適用 Milo 內嵌網頁，外部 Chrome 視窗由瀏覽器控制。
+在 Milo 內的 ChatGPT 對話點一下英文單字，小視窗會依序顯示「英文 → KK 音標 → 繁體中文」。不需要再點「翻譯」，不切換 Google 翻譯 App，也不需要 API key。保留朗讀及 0.5 倍慢讀。長按拖曳可選整句；整句只顯示英文與中文，不顯示 KK。
 
-## 沿用 Google 翻譯 App
+隨 App 附帶約 125,112 筆美式發音與 100,497 筆英中釋義；兩者的收錄範圍不完全相同。`new` 可直接顯示 `[nu] / [nju]` 與「新的」等釋義。常見單字可離線查詢，缺少發音時會明確顯示未收錄，不猜測 KK。
 
-手機先安裝 Google 翻譯 App。在 Milo 內長按並拖曳選好文字，選取穩定約 0.9 秒後自動開啟 Google 翻譯，不必再點「翻譯」。不需要 API key，不再使用先前 MyMemory、Yahoo／Dr.eye 網頁翻譯或自製 KK 卡片。翻譯語言及發音由 Google 翻譯提供，不保證其發音記號是 KK。
+KK 由 CMUdict 的美式 ARPABET 發音轉寫，採 KK 符號、傳統弱讀母音及英語最大音節起首規則放置重音，最多保留三種讀法；不是 Yahoo／Dr.eye 原始 KK，也不使用 ECDICT 英式 IPA 冒充 KK。讀法及重音音節分界可能與其他字典不同。中文釋義來自 ECDICT，建置時以 OpenCC 轉為繁體，是字典釋義而非依整段對話判斷的唯一語意。授權與來源見 [DICTIONARY-LICENSES.txt](DICTIONARY-LICENSES.txt)，APK 也包含相同說明及來源雜湊。
 
-只交付使用者明確選取的文字，最多 5,000 字元，不讀取 Cookie、登入欄位、剪貼簿或整頁對話。開啟其他 App 時，原有前景收音管理仍會停止網站收音；回到 Milo 後可能需要重新開始語音。
+整句與缺少釋義的詞使用 Google ML Kit 裝置端翻譯。首次需要連網下載英文／中文模型，之後可離線使用；不需要另外安裝 Google 翻譯 App。Android 10 以上將模型結果轉成繁體，Android 8／9 沿用模型的中文。不恢復之前 MyMemory／Yahoo／Dr.eye 網頁查詢。
 
-## 驗證
+小視窗留在同一個聊天 Activity，開啟查字不會因切換 App 而停止網站收音。關閉、切換選字或離開前景後會取消／捨棄舊查詢結果。點字只在可信 ChatGPT 訊息內啟用，不觸發連結、按鈕或輸入欄位；長按最多接收明確選取的 5,000 字元，不讀取 Cookie、剪貼簿或擷取整頁對話。
 
-99 項 Android/JVM 測試及 21 項 Chromium 合成頁面測試通過：11 項輸入列、6 項語音球與 4 項選字檢查。APK 編譯成功，Android Lint 0 錯誤、4 項提示。APK 113,469 bytes，簽章與舊版相同。
+## 語音時保持對話在下方操作區上方
 
-尚未在現行 ChatGPT 網站、OPPO 手機或已安裝的 Google 翻譯 App 實測。雲端連線限制無法載入真實 ChatGPT，瀏覽器測試使用本機合成頁面，Google 接收端使用 Android 替身。未辨識的網站結構仍可能保留原有控制項；不宣稱已解決所有 WebView 語音相容性問題。
+保留上方「新對話、A−、A+」及下方精簡語音操作，文字輸入、附件與模型選擇維持隱藏。新增訊息區底部避讓及最新回覆跟隨；字體、操作列高度及視窗大小改變時重新計算，讓最新對話停在底部區域上方。手動往上看舊訊息或正在選取文字時不強制捲到底部，捲回底部後可繼續跟隨。這些調整只適用 Milo 內嵌頁面，外部 Chrome 網頁由瀏覽器控制。
 
-SHA-256：`f14f9c7805045240dc88a3f8ee3ff0ddf9289fab70e26e9788b631eecc751848`。
+## 驗證與適用範圍
 
-全部歷史 APK 保留；Milo-English-v1.0.apk 為最新版相容檔名。所有檔案校驗碼見 SHA256SUMS。
+106 項 Android/JVM 測試及 32 項 Chromium 合成頁面檢查通過，涵蓋實際內建字典、KK／中文小視窗、關閉與晚到結果、單點選字、跨行內格式的單字、整句選取、語音區域避讓、手動捲動及字體縮放。APK 編譯成功，Android Lint 0 錯誤、3 項提示。arm64 翻譯原生庫符合 16 KB ELF 對齊，兩種 APK 的對齊及簽章檢查通過。
+
+尚未在 OPPO 實機、現行 ChatGPT 網站或 Google 翻譯模型上實測。雲端連線限制無法載入真實 ChatGPT，瀏覽器使用本機合成頁面；句子翻譯畫面用替身結果驗證。不能將這些測試視為已確認現行網站相容性或實際模型翻譯準確率。未辨識的網頁結構仍可能需要調整。
+
+arm64 APK：24,723,366 bytes，SHA-256 `425e553c5d672d90419635a4b38271fbd84b309088959177e93e9616dab85388`。
+
+通用 APK：70,986,788 bytes，SHA-256 `681b77c2f896c06a836aa416791ce542cda9fc7385efe4b9442bffa388d8c97f`。
+
+全部歷史 APK 保留。Milo-English-v1.0.apk 為最新版通用 APK 的相容檔名；完整校驗碼見 SHA256SUMS。
