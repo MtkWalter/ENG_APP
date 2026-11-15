@@ -35,7 +35,6 @@ jobs:
           sha256sum --check SHA256SUMS.txt
           grep -E ' (Milo-English-Windows-2.0.0-x64-(Setup|Portable)\.exe)$' SHA256SUMS.txt > SHA256SUMS-release.txt
           mv SHA256SUMS-release.txt SHA256SUMS.txt
-          cp README-Windows.md Windows-使用說明.md
       - name: Upload and verify release assets
         working-directory: downloads
         run: |
@@ -50,7 +49,7 @@ jobs:
           assert.equal(release.tag_name, 'windows-v2.0.0');
           assert.equal(release.target_commitish, '113bdaac2311cc2ae7411eeba94a1bd99271b5e3');
           const names = ['Milo-English-Windows-2.0.0-x64-Setup.exe',
-            'Milo-English-Windows-2.0.0-x64-Portable.exe', 'SHA256SUMS.txt', 'Windows-使用說明.md'];
+            'Milo-English-Windows-2.0.0-x64-Portable.exe', 'SHA256SUMS.txt', 'README-Windows.md'];
           function verify(asset, name) {
             const data = fs.readFileSync(name);
             assert.equal(asset.state, 'uploaded');
@@ -77,6 +76,6 @@ jobs:
         run: gh release edit windows-v2.0.0 --draft=false --latest=false
       - name: Check downloads without authentication
         run: |
-          curl -fIL --max-time 60 https://github.com/MtkWalter/ENG_APP/releases/tag/windows-v2.0.0
-          curl -fIL --max-time 60 https://github.com/MtkWalter/ENG_APP/releases/download/windows-v2.0.0/Milo-English-Windows-2.0.0-x64-Portable.exe
-          curl -fIL --max-time 60 https://github.com/MtkWalter/ENG_APP/releases/download/windows-v2.0.0/Milo-English-Windows-2.0.0-x64-Setup.exe
+          curl -fsSLI --max-time 45 -o /dev/null -w 'Release page: %{http_code}\n' https://github.com/MtkWalter/ENG_APP/releases/tag/windows-v2.0.0
+          curl -fsSLI --max-time 45 -o /dev/null -w 'Portable download: %{http_code}\n' https://github.com/MtkWalter/ENG_APP/releases/download/windows-v2.0.0/Milo-English-Windows-2.0.0-x64-Portable.exe
+          curl -fsSLI --max-time 45 -o /dev/null -w 'Setup download: %{http_code}\n' https://github.com/MtkWalter/ENG_APP/releases/download/windows-v2.0.0/Milo-English-Windows-2.0.0-x64-Setup.exe
