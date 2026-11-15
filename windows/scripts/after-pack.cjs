@@ -8,7 +8,8 @@ module.exports = async function afterPack(context) {
   const asar = await import('@electron/asar');
   const archive = path.join(root, 'resources', 'app.asar');
   const expected = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'android', 'integrity.json'), 'utf8'));
-  const bytes = asar.extractFile(archive, 'assets/android/study_dictionary.db');
+  const bytes = asar.extractFile(archive, path.join('assets', 'android', 'study_dictionary.db'));
+  asar.statFile(archive, path.join('build', 'chat-preload.cjs'));
   if (crypto.createHash('sha256').update(bytes).digest('hex') !== expected.sha256) throw new Error('Packaged dictionary hash mismatch');
   const native = path.join(root, 'resources', 'app.asar.unpacked', 'node_modules');
   for (const file of [

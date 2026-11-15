@@ -14,9 +14,9 @@
     "test:desktop": "node scripts/test-desktop.cjs",
     "test:translation": "node scripts/test-translation.cjs",
     "prebuild:win": "node scripts/generate-preload.cjs && node scripts/prepare-runtime.cjs",
-    "build:win": "electron-builder --win nsis portable zip --x64",
+    "build:win": "electron-builder --win nsis portable zip --x64 --publish never",
     "prebuild:unpacked": "node scripts/generate-preload.cjs && node scripts/prepare-runtime.cjs",
-    "build:unpacked": "electron-builder --win --x64 --dir",
+    "build:unpacked": "electron-builder --win --x64 --dir --publish never",
     "test:packaged": "node scripts/test-packaged.cjs"
   },
   "dependencies": {
