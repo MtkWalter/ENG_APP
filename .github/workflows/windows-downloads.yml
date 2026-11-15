@@ -1,0 +1,56 @@
+name: Separate Windows downloads
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Milo Windows build run ID
+        required: true
+        default: '43667976579'
+  push:
+    paths: ['.github/workflows/windows-downloads.yml']
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  separate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Milo-English-Windows-x64
+          run-id: ${{ inputs.run_id || '43667976579' }}
+          github-token: ${{ github.token }}
+          path: downloads
+      - name: Verify existing build checksums
+        working-directory: downloads
+        run: sha256sum --check SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Milo-English-Windows-2.0.0-x64-Setup
+          path: |
+            downloads/*-Setup.exe
+            downloads/SHA256SUMS.txt
+            downloads/README-Windows.md
+          compression-level: 0
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Milo-English-Windows-2.0.0-x64-Portable
+          path: |
+            downloads/*-Portable.exe
+            downloads/SHA256SUMS.txt
+            downloads/README-Windows.md
+          compression-level: 0
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Milo-English-Windows-2.0.0-x64-ZIP
+          path: |
+            downloads/*.zip
+            downloads/SHA256SUMS.txt
+            downloads/README-Windows.md
+          compression-level: 0
+          retention-days: 30
