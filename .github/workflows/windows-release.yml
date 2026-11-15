@@ -1,0 +1,82 @@
+name: Publish verified Windows downloads
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/windows-desktop']
+    paths: ['.github/workflows/windows-release.yml']
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: windows-release-2.0.0
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'MtkWalter/ENG_APP'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: MtkWalter/ENG_APP
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Milo-English-Windows-x64
+          run-id: '43667976579'
+          github-token: ${{ github.token }}
+          path: downloads
+      - name: Verify the previously tested binaries
+        working-directory: downloads
+        run: |
+          sed -i 's/\r$//' SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+          grep -E ' (Milo-English-Windows-2.0.0-x64-(Setup|Portable)\.exe)$' SHA256SUMS.txt > SHA256SUMS-release.txt
+          mv SHA256SUMS-release.txt SHA256SUMS.txt
+          cp README-Windows.md Windows-使用說明.md
+      - name: Upload and verify release assets
+        working-directory: downloads
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
+          const endpoint = 'repos/MtkWalter/ENG_APP/releases/445890886';
+          const get = () => JSON.parse(execFileSync('gh', ['api', endpoint], { encoding: 'utf8' }));
+          let release = get();
+          assert.equal(release.tag_name, 'windows-v2.0.0');
+          assert.equal(release.target_commitish, '113bdaac2311cc2ae7411eeba94a1bd99271b5e3');
+          const names = ['Milo-English-Windows-2.0.0-x64-Setup.exe',
+            'Milo-English-Windows-2.0.0-x64-Portable.exe', 'SHA256SUMS.txt', 'Windows-使用說明.md'];
+          function verify(asset, name) {
+            const data = fs.readFileSync(name);
+            assert.equal(asset.state, 'uploaded');
+            assert.equal(asset.size, data.length);
+            assert.equal(asset.digest, 'sha256:' + crypto.createHash('sha256').update(data).digest('hex'));
+          }
+          for (const name of names) {
+            const existing = release.assets.find(asset => asset.name === name);
+            if (existing) verify(existing, name);
+            else {
+              assert.equal(release.draft, true, 'Only add files to the prepared draft');
+              execFileSync('gh', ['release', 'upload', release.tag_name, name], { stdio: 'inherit' });
+            }
+          }
+          release = get();
+          for (const name of names) {
+            const asset = release.assets.find(asset => asset.name === name);
+            assert.ok(asset, name + ' was uploaded');
+            verify(asset, name);
+            console.log(name + ': uploaded size and SHA-256 verified');
+          }
+          NODE
+      - name: Make the verified downloads publicly accessible
+        run: gh release edit windows-v2.0.0 --draft=false --latest=false
+      - name: Check downloads without authentication
+        run: |
+          curl -fIL --max-time 60 https://github.com/MtkWalter/ENG_APP/releases/tag/windows-v2.0.0
+          curl -fIL --max-time 60 https://github.com/MtkWalter/ENG_APP/releases/download/windows-v2.0.0/Milo-English-Windows-2.0.0-x64-Portable.exe
+          curl -fIL --max-time 60 https://github.com/MtkWalter/ENG_APP/releases/download/windows-v2.0.0/Milo-English-Windows-2.0.0-x64-Setup.exe
