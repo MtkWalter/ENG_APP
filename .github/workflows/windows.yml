@@ -23,7 +23,6 @@ jobs:
     env:
       ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      MILO_MODEL_DIR: ${{ runner.temp }}/milo-model
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,8 +39,12 @@ jobs:
       - run: npm test
       - run: npm run test:desktop
       - run: npm run test:translation
+        env:
+          MILO_MODEL_DIR: ${{ runner.temp }}/milo-model
       - run: npm run build:win
       - run: npm run test:packaged
+        env:
+          MILO_MODEL_DIR: ${{ runner.temp }}/milo-model
       - name: Compute download checksums
         shell: pwsh
         run: |
