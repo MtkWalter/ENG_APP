@@ -1,7 +1,7 @@
 {
   "name": "milo-english-windows",
   "productName": "Milo English",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Milo 英文學習 Windows 桌面版：ChatGPT 語音、離線 KK 與繁體中文",
   "author": "MtkWalter",
   "private": true,
@@ -13,6 +13,9 @@
     "pretest:desktop": "node scripts/generate-preload.cjs",
     "test:desktop": "node scripts/test-desktop.cjs",
     "test:translation": "node scripts/test-translation.cjs",
+    "test:speech": "node scripts/test-speech.cjs",
+    "pretest:media": "node scripts/generate-preload.cjs",
+    "test:media": "node scripts/test-media.cjs",
     "prebuild:win": "node scripts/generate-preload.cjs && node scripts/prepare-runtime.cjs",
     "build:win": "electron-builder --win nsis portable zip --x64 --publish never",
     "prebuild:unpacked": "node scripts/generate-preload.cjs && node scripts/prepare-runtime.cjs",

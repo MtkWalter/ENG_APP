@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Milo English</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -46,7 +46,7 @@
       </section>
       <div class="aside-bottom">
         <section class="model-card"><div class="model-title"><span class="live-dot" id="model-dot"></span><h2>離線整句翻譯</h2><span id="model-state">首次需下載</span></div><p id="model-description">下載模型後，英文在這台電腦翻譯，不需要 API key。</p><button id="download" class="download-button">下載離線模型</button><p id="progress" role="status" hidden></p></section>
-        <div class="aside-footer"><button id="microphone" class="text-button" title="重設 ChatGPT 的麥克風權限">麥克風設定</button><button id="licenses" class="text-button">來源與授權</button></div>
+        <div class="aside-footer"><button id="microphone" class="text-button" title="重設 ChatGPT 的麥克風權限">麥克風設定</button><button id="test-speech" class="text-button">測試聲音</button><button id="licenses" class="text-button">來源與授權</button></div>
       </div>
     </aside>
   </main>

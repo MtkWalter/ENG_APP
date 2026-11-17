@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let state = {}, result = null, toastTimer;
+let state = {}, result = null, toastTimer, audio = null, speechSequence = 0;
 function toast(text) { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 6500); }
 function bounds() {
   const box = $('chat-host').getBoundingClientRect();
@@ -23,7 +23,11 @@ function renderState(value) {
   $('download').disabled = state.preparing;
   if (!state.preparing) $('progress').hidden = true;
 }
-function stopSpeech() { window.speechSynthesis?.cancel(); }
+function stopSpeech() {
+  speechSequence++;
+  if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); audio = null; }
+  void window.milo.stopSpeech();
+}
 function renderLookup(value) {
   if (!value || value.id !== result?.id) stopSpeech();
   result = value;
@@ -41,18 +45,26 @@ function renderLookup(value) {
   $('definition-label').textContent = value.translated ? '本機模型翻譯 · 繁體中文' : '繁體中文';
   $('source').textContent = value.translated ? 'OPUS-MT / OpenCC · 模型翻譯可能不準確，請配合上下文閱讀。' : value.kind === 'sentence' ? '離線模型提供整句翻譯；句子不顯示 KK 音標。' : 'KK：CMUdict 美式發音轉寫；與出版社字典的標法可能不同。\n中文：ECDICT 字典釋義，不代表上下文中的唯一意思。';
 }
-function speak(rate) {
-  if (!result) return;
-  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') { toast('此電腦未提供英文朗讀。請在 Windows 設定安裝英文語音。'); return; }
+async function speak(rate, test = false) {
+  if (!result && !test) return;
   stopSpeech();
-  const utterance = new SpeechSynthesisUtterance(result.text);
-  utterance.lang = 'en-US'; utterance.rate = rate;
-  const voices = speechSynthesis.getVoices();
-  utterance.voice = voices.find(voice => voice.lang === 'en-US' && voice.localService) || voices.find(voice => voice.lang.startsWith('en') && voice.localService) || null;
-  if (!utterance.voice) { $('speech-note').textContent = '尚未找到本機英文語音。請到 Windows「時間與語言 → 語音」安裝英文語音。'; return; }
-  const id = result.id;
-  utterance.onerror = event => { if (result?.id === id && !['canceled', 'interrupted'].includes(event.error)) $('speech-note').textContent = '朗讀無法啟動，請確認 Windows 已安裝英文語音。'; };
-  speechSynthesis.speak(utterance);
+  const token = speechSequence;
+  const note = text => { if (test) toast(text); else $('speech-note').textContent = text; };
+  note('正在準備 Windows 朗讀…');
+  try {
+    const response = await (test ? window.milo.testSpeech() : window.milo.speech(result.id));
+    if (token !== speechSequence || !response) return;
+    if (response.error) { note(response.error); return; }
+    const player = new Audio('data:audio/wav;base64,' + response.audio);
+    audio = player; player.volume = 1; player.playbackRate = rate; player.preservesPitch = true;
+    player.onended = () => { if (token === speechSequence) note('朗讀完成'); };
+    player.onerror = () => { if (token === speechSequence) note('聲音無法播放。請檢查 Windows 音量混音器內 Milo 的音量與輸出裝置。'); };
+    await player.play();
+    if (token !== speechSequence) { player.pause(); return; }
+    note(response.english ? '正在朗讀 · ' + response.voice : '使用 Windows 預設語音朗讀；可安裝英文語音改善發音。');
+  } catch {
+    if (token === speechSequence) note('聲音無法播放。請檢查 Windows 音量混音器內 Milo 的音量與輸出裝置。');
+  }
 }
 for (const name of ['new', 'reload', 'browser', 'smaller', 'larger', 'focus', 'microphone', 'licenses']) {
   $(name).addEventListener('click', () => window.milo.action(name));
@@ -67,6 +79,7 @@ $('clear').addEventListener('click', () => window.milo.clear());
 $('speak').addEventListener('click', () => speak(1));
 $('slow').addEventListener('click', () => speak(0.5));
 $('stop').addEventListener('click', stopSpeech);
+$('test-speech').addEventListener('click', () => speak(1, true));
 $('download').addEventListener('click', () => window.milo.prepareTranslation());
 document.addEventListener('keydown', event => { if (event.key === 'Escape') window.milo.clear(); });
 window.addEventListener('beforeunload', stopSpeech);

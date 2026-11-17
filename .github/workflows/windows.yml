@@ -38,6 +38,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm run test:desktop
+      - run: npm run test:media
+      - run: npm run test:speech
       - run: npm run test:translation
         env:
           MILO_MODEL_DIR: ${{ runner.temp }}/milo-model

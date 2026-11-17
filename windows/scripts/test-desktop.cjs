@@ -74,6 +74,15 @@ async function clickChat(selector) {
     assert.equal(await chatEvaluate(`document.querySelector('#voice').getClientRects().length > 0`), true);
     assert.equal(await chatEvaluate(`document.querySelector('#attach').getClientRects().length > 0`), false);
     assert.equal(await chatEvaluate(`typeof require`), 'undefined');
+    await waitChat(`document.documentElement.hasAttribute('data-milo-sidebar-off')`);
+    assert.equal(await chatEvaluate(`document.querySelector('#stage-sidebar').getClientRects().length`), 0);
+    assert.equal(await chatEvaluate(`getComputedStyle(document.querySelector('#thread-width')).maxWidth`), 'none');
+    await page.evaluate(() => window.milo.action('sidebar'));
+    await waitChat(`document.querySelector('#stage-sidebar').getClientRects().length > 0`);
+    await page.evaluate(() => window.milo.action('sidebar'));
+    await waitChat(`document.querySelector('#stage-sidebar').getClientRects().length === 0`);
+    await chatEvaluate(`(() => { const old=document.querySelector('#stage-sidebar'); const next=old.cloneNode(true); old.remove(); document.body.prepend(next); })()`);
+    await waitChat(`document.querySelector('#stage-sidebar').getAttribute('data-milo-sidebar-hidden') === '1'`);
     await clickChat('#new-word');
     await waitText(page, '#english', 'new');
     await waitText(page, '#chinese', '新的');
@@ -97,6 +106,10 @@ async function clickChat(selector) {
     await waitText(page, '#english', 'A good book');
     assert.equal(await page.locator('#kk').isVisible(), false);
     await chatEvaluate('getSelection().removeAllRanges()');
+    if (process.platform === 'linux') {
+      await page.locator('#speak').click();
+      await waitText(page, '#speech-note', '只在 Windows');
+    }
     await page.locator('#larger').click();
     await waitText(page, '#zoom', '110%');
     await page.locator('#smaller').click();

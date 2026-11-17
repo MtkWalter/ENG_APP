@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld('milo', {
   action: name => ipcRenderer.invoke('shell:action', name),
   lookup: text => ipcRenderer.invoke('shell:lookup', text),
   clear: () => ipcRenderer.invoke('shell:clear'),
+  speech: id => ipcRenderer.invoke('shell:speech', id),
+  testSpeech: () => ipcRenderer.invoke('shell:test-speech'),
+  stopSpeech: () => ipcRenderer.invoke('shell:stop-speech'),
   prepareTranslation: () => ipcRenderer.invoke('shell:prepare'),
   bounds: rect => ipcRenderer.send('shell:bounds', rect),
   on: callback => {

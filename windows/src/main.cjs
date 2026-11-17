@@ -3,16 +3,18 @@
 const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, powerSaveBlocker } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { isChatURL, isLoginURL, isExternalURL, normalizeSelection, isWord, audioPermission } = require('./policy.cjs');
+const { isChatURL, isLoginURL, isExternalURL, normalizeSelection, isWord } = require('./policy.cjs');
 const { loadDictionary } = require('./dictionary.cjs');
 const { readSettings, writeSettings } = require('./settings.cjs');
 const { Translation } = require('./translation.cjs');
+const { NativeSpeech, validateWave } = require('./speech.cjs');
+const { createMediaPermissions } = require('./media-permissions.cjs');
 
 const CHAT_URL = 'https://chatgpt.com/';
 const TEST = !app.isPackaged && process.env.MILO_TEST_MODE === '1';
 if (TEST && process.env.MILO_TEST_DATA) app.setPath('userData', process.env.MILO_TEST_DATA);
 app.setName('Milo English');
-let main, chat, settings, translator, dictionaryPromise, awake;
+let main, chat, settings, translator, speech, dictionaryPromise, awake;
 let sequence = 0, currentLookup = null, closing = false;
 let chatLoadFailed = false;
 const state = { version: app.getVersion(), loading: true, error: '', zoom: 1, focus: true,
@@ -20,6 +22,7 @@ const state = { version: app.getVersion(), loading: true, error: '', zoom: 1, fo
 const assets = path.join(__dirname, '..', 'assets', 'android');
 const scripts = Object.fromEntries(['compact_voice_composer', 'hide_voice_orb', 'keep_conversation_visible']
   .map(name => [name, fs.readFileSync(path.join(assets, name + '.js'), 'utf8')]));
+const sidebarScript = fs.readFileSync(path.join(__dirname, 'hide-sidebar.js'), 'utf8');
 
 function emit(type, data) {
   if (main && !main.isDestroyed() && !main.webContents.isDestroyed()) main.webContents.send('shell:event', { type, data });
@@ -31,6 +34,7 @@ function save() {
 }
 function clearLookup() {
   sequence++; currentLookup = null;
+  speech?.stop();
   translator?.cancel(); emit('lookup', null);
 }
 async function translateLookup(id, text) {
@@ -52,6 +56,7 @@ async function lookup(value) {
   const text = normalizeSelection(value);
   if (!text) return { error: '請輸入英文，最多 5,000 字元。' };
   const id = ++sequence;
+  speech.stop();
   translator.cancel();
   const result = { id, text, kind: isWord(text) ? 'word' : 'sentence', kk: '', chinese: '', translated: false };
   currentLookup = result;
@@ -86,6 +91,8 @@ function updateAwake() {
 async function applyMode() {
   if (!chat || chat.webContents.isDestroyed() || !isChatURL(chat.webContents.getURL())) return;
   try {
+    if (settings.showSidebar) await chat.webContents.executeJavaScript('window.__miloSidebarV1?.stop()');
+    else await chat.webContents.executeJavaScript(sidebarScript);
     if (settings.focus) {
       for (const name of ['compact_voice_composer', 'hide_voice_orb', 'keep_conversation_visible']) {
         await chat.webContents.executeJavaScript(scripts[name]);
@@ -126,6 +133,14 @@ function installIPC() {
   ipcMain.handle('shell:state', event => isShell(event) ? state : null);
   ipcMain.handle('shell:lookup', (event, text) => isShell(event) ? lookup(text) : {});
   ipcMain.handle('shell:clear', event => { if (isShell(event)) clearLookup(); });
+  const renderSpeech = async (event, text) => {
+    if (!isShell(event) || !text) return { error: '請先選擇要朗讀的英文。' };
+    try { return await speech.render(text); }
+    catch (error) { return { error: error.message }; }
+  };
+  ipcMain.handle('shell:speech', (event, id) => renderSpeech(event, currentLookup?.id === id ? currentLookup.text : null));
+  ipcMain.handle('shell:test-speech', event => renderSpeech(event, 'Hello. This is Milo English.'));
+  ipcMain.handle('shell:stop-speech', event => { if (isShell(event)) speech.stop(); });
   ipcMain.handle('shell:prepare', async event => {
     if (!isShell(event) || translator.preparing) return {};
     publish({ preparing: true });
@@ -147,6 +162,7 @@ function installIPC() {
       case 'reload': loadChat(isLoginURL(chat.webContents.getURL()) ? chat.webContents.getURL() : CHAT_URL); break;
       case 'browser': external(CHAT_URL); break;
       case 'focus': settings.focus = !settings.focus; save(); publish({ focus: settings.focus }); await applyMode(); break;
+      case 'sidebar': settings.showSidebar = !settings.showSidebar; save(); await applyMode(); break;
       case 'smaller':
       case 'larger':
         settings.zoom = Math.round(Math.min(2, Math.max(0.75, settings.zoom + (name === 'larger' ? 0.1 : -0.1))) * 100) / 100;
@@ -173,6 +189,7 @@ function installIPC() {
 
 async function createWindow() {
   settings = readSettings(app.getPath('userData'));
+  speech = new NativeSpeech();
   Object.assign(state, { focus: settings.focus, zoom: settings.zoom });
   translator = new Translation(path.join(app.getPath('userData'), 'translation-model'),
     progress => emit('progress', progress));
@@ -183,36 +200,31 @@ async function createWindow() {
     title: 'Milo English', backgroundColor: '#101615', autoHideMenuBar: true,
     icon: path.join(__dirname, '..', 'assets', 'icon.png'), show: false,
     webPreferences: { preload: path.join(__dirname, 'shell-preload.cjs'), sandbox: true,
-      contextIsolation: true, nodeIntegration: false, webSecurity: true, spellcheck: false }
+      contextIsolation: true, nodeIntegration: false, webSecurity: true, spellcheck: false, autoplayPolicy: 'no-user-gesture-required' }
   });
   main.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   main.webContents.on('will-navigate', event => event.preventDefault());
   main.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   chat = new WebContentsView({ webPreferences: { preload: path.join(__dirname, '..', 'build', 'chat-preload.cjs'),
     sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true,
-    partition: 'persist:milo-chat', backgroundThrottling: false, spellcheck: false }
+    partition: 'persist:milo-chat', backgroundThrottling: false, spellcheck: false, autoplayPolicy: 'no-user-gesture-required' }
   });
   main.contentView.addChildView(chat);
   chat.setBounds({ x: 16, y: 96, width: 800, height: 650 });
   const session = chat.webContents.session;
-  const ua = session.getUserAgent().replace(/\sElectron\/\S+/g, '').replace(/\smilo-english-windows\/\S+/gi, '');
+  const ua = session.getUserAgent().replace(/\s(?:Electron|milo-english-windows|Milo\s*English|Milo%20English)\/\S+/gi, '');
   session.setUserAgent(ua);
-  session.setPermissionCheckHandler((contents, permission, origin, details) =>
-    !!contents && isChatURL(contents.getURL()) && isChatURL(origin) && permission === 'media' &&
-    details.mediaType === 'audio' && settings.microphone !== 'deny');
-  session.setPermissionRequestHandler(async (contents, permission, callback, details) => {
-    if (!contents || !isChatURL(contents.getURL()) || !audioPermission(permission, details.requestingUrl || contents.getURL(), details)) {
-      callback(false); return;
-    }
-    if (settings.microphone === 'ask') {
+  const permissions = createMediaPermissions({ getContents: () => chat.webContents, settings, save,
+    askAudio: async () => {
       const result = await dialog.showMessageBox(main, { type: 'question', title: 'Milo · 麥克風權限',
         message: '允許 ChatGPT 使用麥克風進行語音對話？',
         detail: '只有 chatgpt.com 的語音功能可以要求音訊權限；攝影機與螢幕錄製維持關閉。',
         buttons: ['允許麥克風', '暫不允許'], defaultId: 0, cancelId: 1 });
-      settings.microphone = result.response === 0 ? 'allow' : 'deny'; save();
+      return result.response === 0;
     }
-    callback(settings.microphone === 'allow');
   });
+  session.setPermissionCheckHandler(permissions.check);
+  session.setPermissionRequestHandler(permissions.request);
   session.on('will-download', (_event, item) => { item.cancel(); emit('notice', '請使用上方「瀏覽器」按鈕，在瀏覽器下載附件。'); });
   protectNavigation(chat.webContents);
   chat.webContents.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
@@ -243,7 +255,7 @@ async function createWindow() {
   main.on('close', () => {
     closing = true;
     [settings.width, settings.height] = main.getSize(); save();
-    translator.close(); emit('stop-speech', null);
+    translator.close(); speech.stop(); emit('stop-speech', null);
     if (chat && !chat.webContents.isDestroyed()) chat.webContents.close();
     if (awake != null) { powerSaveBlocker.stop(awake); awake = null; }
   });
@@ -251,6 +263,8 @@ async function createWindow() {
     { label: '檔案', submenu: [{ label: '新對話', accelerator: 'CmdOrCtrl+N', click: () => loadChat() },
       { label: '重新載入', accelerator: 'CmdOrCtrl+R', click: () => loadChat(isLoginURL(chat.webContents.getURL()) ? chat.webContents.getURL() : CHAT_URL) },
       { type: 'separator' }, { role: 'quit', label: '結束 Milo' }] },
+    { label: '檢視', submenu: [{ label: '顯示網頁左側選單', type: 'checkbox', checked: settings.showSidebar,
+      click: async item => { settings.showSidebar = item.checked; save(); await applyMode(); } }] },
     { label: '編輯', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' },
       { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
       { type: 'separator' }, { label: '查單字', accelerator: 'CmdOrCtrl+L', click: () => { main.webContents.focus(); emit('focus-search', null); } }] }
@@ -270,6 +284,15 @@ async function selfTest() {
     dictionary.close();
     // Importing the full pipeline also loads the packaged Windows sharp / ONNX N-API libraries.
     await import('@huggingface/transformers');
+    let nativeSpeech = null;
+    if (process.platform === 'win32') {
+      const native = new NativeSpeech();
+      const rendered = await native.render('This is a new book.');
+      const bytes = Buffer.from(rendered.audio, 'base64');
+      if (!validateWave(bytes)) throw new Error('Packaged Windows speech synthesis returned no audio');
+      nativeSpeech = { voice: rendered.voice, english: rendered.english, bytes: bytes.length };
+      native.stop();
+    }
     let translation = null;
     if (modelDirectory) {
       service = new Translation(modelDirectory, () => {});
@@ -277,7 +300,7 @@ async function selfTest() {
       if (!/[\u4e00-\u9fff]/.test(translation) || /[这书]/.test(translation)) throw new Error('Packaged offline translation failed');
     }
     if (report) fs.writeFileSync(report, JSON.stringify({ ok: true, platform: process.platform,
-      arch: process.arch, version: app.getVersion(), dictionary: entry, translation }, null, 2));
+      arch: process.arch, version: app.getVersion(), dictionary: entry, translation, nativeSpeech }, null, 2));
     service?.close(); app.exit(0);
   } catch (error) {
     if (report) fs.writeFileSync(report, JSON.stringify({ ok: false, error: error.message, cause: String(error.cause || '') }, null, 2));
@@ -292,5 +315,5 @@ else {
     dialog.showErrorBox('Milo 無法啟動', String(error.message)); app.quit();
   });
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => translator?.close());
+  app.on('before-quit', () => { translator?.close(); speech?.stop(); });
 }
