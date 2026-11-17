@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           sparse-checkout: |
             windows/package.json
             windows/RELEASE-NOTES.md
@@ -35,12 +36,14 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const { execFileSync } = require('node:child_process');
+          const source = execFileSync('git', ['log', '-1', '--format=%H', '--', 'windows'], { encoding: 'utf8' }).trim();
+          execFileSync('git', ['diff', '--quiet', source, 'HEAD', '--', 'windows']);
           (async () => {
             for (let attempt = 0; attempt < 60; attempt++) {
-              const data = JSON.parse(execFileSync('gh', ['api', '-X', 'GET', 'repos/MtkWalter/ENG_APP/actions/runs', '-f', 'head_sha=' + process.env.GITHUB_SHA, '-f', 'per_page=30'], { encoding: 'utf8' }));
-              const runs = data.workflow_runs.filter(run => run.name === 'Milo Windows' && run.head_sha === process.env.GITHUB_SHA);
+              const data = JSON.parse(execFileSync('gh', ['api', '-X', 'GET', 'repos/MtkWalter/ENG_APP/actions/runs', '-f', 'head_sha=' + source, '-f', 'per_page=30'], { encoding: 'utf8' }));
+              const runs = data.workflow_runs.filter(run => run.name === 'Milo Windows' && run.head_sha === source);
               const success = runs.find(run => run.conclusion === 'success');
-              if (success) { fs.appendFileSync(process.env.GITHUB_OUTPUT, 'run_id=' + success.id + '\n'); return; }
+              if (success) { fs.appendFileSync(process.env.GITHUB_OUTPUT, 'run_id=' + success.id + '\nsource_sha=' + source + '\n'); return; }
               if (attempt > 2 && runs.length && runs.every(run => run.status === 'completed') && runs.some(run => run.conclusion === 'failure')) throw new Error('Windows verification failed; release stays unpublished');
               console.log('Waiting for Windows verification, attempt ' + (attempt + 1));
               await new Promise(resolve => setTimeout(resolve, 15000));
@@ -60,6 +63,8 @@ jobs:
           sed -i 's/\r$//' SHA256SUMS.txt
           sha256sum --check SHA256SUMS.txt
       - name: Stage and publish the verified release
+        env:
+          SOURCE_SHA: ${{ steps.build.outputs.source_sha }}
         run: |
           node <<'NODE'
           const fs = require('node:fs');
@@ -69,16 +74,17 @@ jobs:
           const version = JSON.parse(fs.readFileSync('windows/package.json')).version;
           assert.match(version, /^\d+\.\d+\.\d+$/);
           const tag = 'windows-v' + version;
-          const source = process.env.GITHUB_SHA;
+          const source = process.env.SOURCE_SHA;
           const names = ['Milo-English-Windows-' + version + '-x64-Portable.exe', 'Milo-English-Windows-' + version + '-x64-Setup.exe', 'README-Windows.md'];
           const sums = names.filter(name => name.endsWith('.exe')).map(name => crypto.createHash('sha256').update(fs.readFileSync('downloads/' + name)).digest('hex') + '  ' + name);
           fs.writeFileSync('downloads/SHA256SUMS.txt', sums.join('\n') + '\n'); names.push('SHA256SUMS.txt');
-          const gh = args => execFileSync('gh', args, { encoding: 'utf8' });
+          const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
           const releases = JSON.parse(gh(['api', 'repos/MtkWalter/ENG_APP/releases?per_page=100']));
           let release = releases.find(item => item.tag_name === tag);
           if (!release) {
-            gh(['release', 'create', tag, '--draft', '--prerelease', '--latest=false', '--target', source, '--title', 'Milo English ' + version + ' - Windows x64', '--notes-file', 'windows/RELEASE-NOTES.md']);
-            release = JSON.parse(gh(['api', 'repos/MtkWalter/ENG_APP/releases?per_page=100'])).find(item => item.tag_name === tag);
+            const payload = { tag_name: tag, target_commitish: source, draft: true, prerelease: true,
+              name: 'Milo English ' + version + ' - Windows x64', body: fs.readFileSync('windows/RELEASE-NOTES.md', 'utf8') };
+            release = JSON.parse(gh(['api', '--method', 'POST', 'repos/MtkWalter/ENG_APP/releases', '--input', '-'], JSON.stringify(payload)));
           }
           assert.equal(release.target_commitish, source, 'Never replace a release built from different source');
           function verify(asset, name) {
