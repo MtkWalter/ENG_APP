@@ -38,6 +38,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm run test:desktop
+      - run: npm run test:performance
       - run: npm run test:media
       - run: npm run test:speech
       - run: npm run test:translation
@@ -55,6 +56,7 @@ jobs:
             "$digest  $($_.Name)"
           } | Set-Content dist/SHA256SUMS.txt -Encoding ascii
           Copy-Item README.md dist/README-Windows.md
+          Copy-Item PERFORMANCE.md dist/PERFORMANCE.md
       - uses: actions/upload-artifact@v4
         with:
           name: Milo-English-Windows-x64
@@ -63,6 +65,7 @@ jobs:
             windows/dist/*.zip
             windows/dist/SHA256SUMS.txt
             windows/dist/README-Windows.md
+            windows/dist/PERFORMANCE.md
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()

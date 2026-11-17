@@ -76,6 +76,7 @@ jobs:
           const tag = 'windows-v' + version;
           const source = process.env.SOURCE_SHA;
           const names = ['Milo-English-Windows-' + version + '-x64-Portable.exe', 'Milo-English-Windows-' + version + '-x64-Setup.exe', 'README-Windows.md'];
+          if (fs.existsSync('downloads/PERFORMANCE.md')) names.push('PERFORMANCE.md');
           const sums = names.filter(name => name.endsWith('.exe')).map(name => crypto.createHash('sha256').update(fs.readFileSync('downloads/' + name)).digest('hex') + '  ' + name);
           fs.writeFileSync('downloads/SHA256SUMS.txt', sums.join('\n') + '\n'); names.push('SHA256SUMS.txt');
           const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input });

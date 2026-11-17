@@ -1,10 +1,10 @@
-# Milo English — Windows 桌面版 2.0.2
+# Milo English — Windows 桌面版 2.0.3
 
 適用 Windows 10 / 11 **64 位元 x64**，建議 8 GB RAM。Windows ARM 電腦可使用系統的 x64 模擬；此版本未提供原生 ARM64，也不支援 Windows 7 / 8。
 
 ## 使用方式
 
-1. 執行 `Milo-English-Windows-2.0.2-x64-Setup.exe` 安裝，或直接開啟 `Milo-English-Windows-2.0.2-x64-Portable.exe`。另提供 ZIP，解壓縮後執行 `Milo-English.exe`。
+1. 執行 `Milo-English-Windows-2.0.3-x64-Setup.exe` 安裝，或直接開啟 `Milo-English-Windows-2.0.3-x64-Portable.exe`。另提供 ZIP，解壓縮後執行 `Milo-English.exe`。
 2. 在左側登入自己的 ChatGPT 帳號，再使用網站的語音按鈕。使用 ChatGPT 需要網路與帳號本身的語音權限。
 3. 點一下對話中的英文單字，右側立即顯示英文、KK 音標、繁體中文；也可在右上方輸入英文查詢。字典不需要網路或 API key。
 4. 拖曳選取同一則訊息內的英文句子，可使用離線模型翻譯。首次按右下方「下載離線模型」，約需下載 120 MB；之後在本機 CPU 執行，不將選取文字傳至模型下載服務。一次最多 5,000 字元，較長內容分段處理。
@@ -20,7 +20,7 @@
 
 ## 資料、字典與翻譯
 
-- 直接沿用 Android 2.0.0 APK 中的 `study_dictionary.db`、來源授權與四個介面腳本，來源提交為 `096f0b024a316690e15ae05d60683ca0c197750b`。原檔雜湊記錄於 `assets/android/integrity.json`，啟動時驗證字典完整性。
+- 保留 Android 2.0.0 APK 中的 `study_dictionary.db`、來源授權與四個原始介面腳本，來源提交為 `096f0b024a316690e15ae05d60683ca0c197750b`。Windows 使用 src/page 中針對長對話最佳化的介面腳本，點字擷取沿用原始腳本。原檔雜湊記錄於 `assets/android/integrity.json`，啟動時驗證字典完整性。
 - 共 142,153 個詞條，其中 KK 125,112 筆、中文 100,497 筆；兩種收錄範圍不同。KK 是 CMUdict 美式 ARPABET 轉寫，不是 Yahoo / Dr.eye 原稿。缺少音標會顯示「尚未收錄」，不以其他詞形的音標代替。
 - 整句模型為 `Xenova/opus-mt-en-zh`，固定 revision `046f55aec303cdee3e0318604406d4df20f1e8ea`，來源為 Helsinki-NLP OPUS-MT，使用 ONNX Runtime CPU 及 OpenCC 繁體轉換。模型下載完成後，推論明確禁止遠端模型存取。模型翻譯及字典釋義都可能與上下文不符。
 - 登入狀態由獨立 Chromium session 儲存；設定與模型放在 `%APPDATA%\Milo English`。免安裝版也使用此目錄，所以移動 EXE 不會帶走登入資料。程式不保存查詢紀錄，也不讀取剪貼簿或匯出 Cookie。
@@ -53,6 +53,8 @@ npm run build:win
 `npm run test:translation` 為額外的實際模型推論檢查，首次會下載模型。可用 `MILO_MODEL_DIR` 指定測試快取目錄；測試會重啟 worker，再用禁止遠端模型存取的設定執行推論。
 
 `npm run test:media` 使用虛擬音訊裝置，實際測試 Chromium 麥克風擷取、指定喇叭、攝影機拒絕及本機 WebRTC 音訊封包傳輸。`npm run test:speech` 在 Windows 使用實際語音引擎產生非靜音 WAV；打包後 EXE 也會重新執行同一項檢查。這些測試不代表已登入真實 ChatGPT 完成語音通話，也不代表已聽到使用者電腦的喇叭聲音。
+
+`npm run test:performance` 對照長對話逐字更新的全頁查詢、屬性寫入與畫面更新耗時，並驗證手動捲動、選字、底部操作區避讓與新訊息跟隨。分析與可重現方式見 [效能分析](PERFORMANCE.md)。
 
 `.github/workflows/windows.yml` 在 Windows runner 執行單元測試、Electron 合成頁面測試、打包與產物校驗，產出可下載的 artifact。測試頁面攔截 `https://chatgpt.com/`，不使用帳號或讀取真實對話。
 

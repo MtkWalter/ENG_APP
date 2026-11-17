@@ -20,8 +20,9 @@ let chatLoadFailed = false;
 const state = { version: app.getVersion(), loading: true, error: '', zoom: 1, focus: true,
   dictionary: false, translationReady: false, preparing: false };
 const assets = path.join(__dirname, '..', 'assets', 'android');
-const scripts = Object.fromEntries(['compact_voice_composer', 'hide_voice_orb', 'keep_conversation_visible']
-  .map(name => [name, fs.readFileSync(path.join(assets, name + '.js'), 'utf8')]));
+const pageScripts = { compact_voice_composer: 'compact-voice.js', hide_voice_orb: 'hide-voice-orb.js', keep_conversation_visible: 'keep-conversation-visible.js' };
+const scripts = Object.fromEntries(Object.entries(pageScripts)
+  .map(([name, file]) => [name, fs.readFileSync(path.join(__dirname, 'page', file), 'utf8')]));
 const conversationLayoutScript = fs.readFileSync(path.join(__dirname, 'wide-conversation.js'), 'utf8');
 
 function emit(type, data) {
