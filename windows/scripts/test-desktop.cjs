@@ -6,6 +6,8 @@ const path = require('node:path');
 const os = require('node:os');
 const root = path.join(__dirname, '..');
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'milo-desktop-'));
+// Upgrade from 2.0.1: the obsolete saved preference must not hide website controls.
+fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify({ showSidebar: false }));
 let app;
 async function search(page, text) {
   await page.locator('#search').fill(text);
@@ -74,15 +76,19 @@ async function clickChat(selector) {
     assert.equal(await chatEvaluate(`document.querySelector('#voice').getClientRects().length > 0`), true);
     assert.equal(await chatEvaluate(`document.querySelector('#attach').getClientRects().length > 0`), false);
     assert.equal(await chatEvaluate(`typeof require`), 'undefined');
-    await waitChat(`document.documentElement.hasAttribute('data-milo-sidebar-off')`);
-    assert.equal(await chatEvaluate(`document.querySelector('#stage-sidebar').getClientRects().length`), 0);
+    await waitChat(`document.querySelector('#thread-width').hasAttribute('data-milo-wide-text')`);
+    assert.equal(await chatEvaluate(`document.querySelector('#stage-sidebar').getClientRects().length > 0`), true);
+    assert.equal(await chatEvaluate(`document.querySelector('#sidebar-toggle').getClientRects().length > 0`), true);
+    assert.equal(await chatEvaluate(`document.querySelectorAll('[data-milo-sidebar-hidden]').length`), 0);
     assert.equal(await chatEvaluate(`getComputedStyle(document.querySelector('#thread-width')).maxWidth`), 'none');
-    await page.evaluate(() => window.milo.action('sidebar'));
-    await waitChat(`document.querySelector('#stage-sidebar').getClientRects().length > 0`);
-    await page.evaluate(() => window.milo.action('sidebar'));
+    const expandedWidth = await chatEvaluate(`document.querySelector('#thread-width').getBoundingClientRect().width`);
+    await clickChat('#sidebar-toggle');
     await waitChat(`document.querySelector('#stage-sidebar').getClientRects().length === 0`);
     await chatEvaluate(`(() => { const old=document.querySelector('#stage-sidebar'); const next=old.cloneNode(true); old.remove(); document.body.prepend(next); })()`);
-    await waitChat(`document.querySelector('#stage-sidebar').getAttribute('data-milo-sidebar-hidden') === '1'`);
+    await waitChat(`document.querySelector('#stage-sidebar').getClientRects().length === 0`);
+    assert.ok(await chatEvaluate(`document.querySelector('#thread-width').getBoundingClientRect().width`) > expandedWidth + 100);
+    await clickChat('#sidebar-toggle');
+    await waitChat(`document.querySelector('#stage-sidebar').getClientRects().length > 0`);
     await clickChat('#new-word');
     await waitText(page, '#english', 'new');
     await waitText(page, '#chinese', '新的');

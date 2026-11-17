@@ -6,7 +6,6 @@ function sanitize(value = {}) {
   return {
     zoom: Number.isFinite(value.zoom) ? Math.min(2, Math.max(0.75, value.zoom)) : 1,
     focus: typeof value.focus === 'boolean' ? value.focus : true,
-    showSidebar: value.showSidebar === true,
     microphone: ['ask', 'allow', 'deny'].includes(value.microphone) ? value.microphone : 'ask',
     width: Number.isFinite(value.width) ? Math.min(3840, Math.max(980, Math.round(value.width))) : 1320,
     height: Number.isFinite(value.height) ? Math.min(2160, Math.max(680, Math.round(value.height))) : 900

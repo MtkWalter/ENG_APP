@@ -22,7 +22,7 @@ const state = { version: app.getVersion(), loading: true, error: '', zoom: 1, fo
 const assets = path.join(__dirname, '..', 'assets', 'android');
 const scripts = Object.fromEntries(['compact_voice_composer', 'hide_voice_orb', 'keep_conversation_visible']
   .map(name => [name, fs.readFileSync(path.join(assets, name + '.js'), 'utf8')]));
-const sidebarScript = fs.readFileSync(path.join(__dirname, 'hide-sidebar.js'), 'utf8');
+const conversationLayoutScript = fs.readFileSync(path.join(__dirname, 'wide-conversation.js'), 'utf8');
 
 function emit(type, data) {
   if (main && !main.isDestroyed() && !main.webContents.isDestroyed()) main.webContents.send('shell:event', { type, data });
@@ -91,8 +91,7 @@ function updateAwake() {
 async function applyMode() {
   if (!chat || chat.webContents.isDestroyed() || !isChatURL(chat.webContents.getURL())) return;
   try {
-    if (settings.showSidebar) await chat.webContents.executeJavaScript('window.__miloSidebarV1?.stop()');
-    else await chat.webContents.executeJavaScript(sidebarScript);
+    await chat.webContents.executeJavaScript(conversationLayoutScript);
     if (settings.focus) {
       for (const name of ['compact_voice_composer', 'hide_voice_orb', 'keep_conversation_visible']) {
         await chat.webContents.executeJavaScript(scripts[name]);
@@ -162,7 +161,6 @@ function installIPC() {
       case 'reload': loadChat(isLoginURL(chat.webContents.getURL()) ? chat.webContents.getURL() : CHAT_URL); break;
       case 'browser': external(CHAT_URL); break;
       case 'focus': settings.focus = !settings.focus; save(); publish({ focus: settings.focus }); await applyMode(); break;
-      case 'sidebar': settings.showSidebar = !settings.showSidebar; save(); await applyMode(); break;
       case 'smaller':
       case 'larger':
         settings.zoom = Math.round(Math.min(2, Math.max(0.75, settings.zoom + (name === 'larger' ? 0.1 : -0.1))) * 100) / 100;
@@ -263,8 +261,6 @@ async function createWindow() {
     { label: '檔案', submenu: [{ label: '新對話', accelerator: 'CmdOrCtrl+N', click: () => loadChat() },
       { label: '重新載入', accelerator: 'CmdOrCtrl+R', click: () => loadChat(isLoginURL(chat.webContents.getURL()) ? chat.webContents.getURL() : CHAT_URL) },
       { type: 'separator' }, { role: 'quit', label: '結束 Milo' }] },
-    { label: '檢視', submenu: [{ label: '顯示網頁左側選單', type: 'checkbox', checked: settings.showSidebar,
-      click: async item => { settings.showSidebar = item.checked; save(); await applyMode(); } }] },
     { label: '編輯', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' },
       { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
       { type: 'separator' }, { label: '查單字', accelerator: 'CmdOrCtrl+L', click: () => { main.webContents.focus(); emit('focus-search', null); } }] }
