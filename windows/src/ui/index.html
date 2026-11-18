@@ -72,6 +72,12 @@
             <label><input type="radio" name="image-character" value="cinnamoroll"><span>大耳狗</span></label>
           </div>
         </fieldset>
+        <fieldset id="image-game-styles" class="game-style-picker" hidden>
+          <legend>今天怎麼玩？</legend>
+          <label><input type="radio" name="image-game-style" value="puzzle"><span><strong>益智拼圖</strong><small>配對、拼字、組句</small></span></label>
+          <label><input type="radio" name="image-game-style" value="pet"><span><strong>寵物點心屋</strong><small>練英文，賺點心</small></span></label>
+          <label><input type="radio" name="image-game-style" value="quest" checked><span><strong>任務闖關</strong><small>一步一步拿星星</small></span></label>
+        </fieldset>
         <div id="image-preview-card" class="image-preview-card" hidden>
           <img id="image-preview" alt="這次英文練習使用的圖片">
           <div><strong id="image-name"></strong><span id="image-metadata"></span></div>
@@ -86,7 +92,34 @@
           <p id="image-error" class="error" role="alert" hidden></p>
           <button id="image-cancel" class="text-button" type="button" hidden>取消本次傳送</button>
         </div>
-        <p class="image-learning-note">圖片會傳到目前登入的 ChatGPT 對話，需要網路及可使用圖片的帳號。開始後會顯示文字輸入區，方便作答與拼字；要練口說或單字發音，可開啟 ChatGPT 語音。</p>
+        <section id="image-game" class="game-board" aria-label="圖片英文遊戲" hidden>
+          <div class="game-heading"><span class="eyebrow">YOUR ENGLISH ADVENTURE</span><h2 id="game-title">英文任務闖關</h2></div>
+          <p id="game-status" class="game-status" role="status" aria-live="polite"></p>
+          <p id="game-error" class="error" role="alert" hidden></p>
+          <div id="game-play" hidden>
+            <div class="game-rewards" aria-label="本次遊戲獎勵"><span>★ <strong id="game-stars">0</strong></span><span>點心 <strong id="game-food">0</strong></span><span>已餵點心 <strong id="game-energy">0</strong></span></div>
+            <p class="game-pronunciation-note">獨立答對得星星；用提示或重試也能完成任務。</p>
+            <div class="game-progress-row"><progress id="game-progress" value="0" max="1" aria-label="關卡進度"></progress><span id="game-progress-label">0 / 0</span></div>
+            <div id="game-stages" class="game-stages" aria-label="練習類型"><span data-kind="memory">記憶</span><span aria-hidden="true">→</span><span data-kind="spelling">拼字</span><span aria-hidden="true">→</span><span data-kind="sentence">句型</span></div>
+            <div id="game-puzzle" class="game-puzzle" hidden><div id="game-puzzle-grid" class="game-puzzle-grid" aria-label="完成關卡，逐步揭開拼圖"></div><p id="game-puzzle-label"></p></div>
+            <div id="game-pet" class="game-pet"><img id="game-pet-image" src="../../assets/game-kuromi.png" width="76" height="76" alt="庫洛米學習夥伴"><div><strong id="game-pet-name">庫洛米</strong><p id="game-pet-note">一起完成一個小挑戰。</p><button id="game-feed" class="text-button" type="button" disabled>餵一份點心</button></div></div>
+            <div id="game-question" class="game-question">
+              <span id="game-kind" class="eyebrow">WORD CHALLENGE</span>
+              <h3 id="game-prompt"></h3><p id="game-word" hidden></p><p id="game-meaning" hidden></p><p id="game-phonetic" hidden></p>
+              <div class="game-help"><button id="game-speak" class="speech-button" type="button">▷ 聽發音</button><button id="game-stop" class="text-button" type="button">停止</button><button id="game-hint" class="text-button" type="button">看提示</button></div>
+              <p class="game-pronunciation-note">先聽讀，再開口跟讀；這裡不評判實際發音。</p>
+              <p id="game-speech-note" class="muted" role="status" hidden></p><p id="game-hint-text" class="game-hint-text" hidden></p>
+              <div id="game-choices" class="game-choices" hidden></div>
+              <div id="game-letters" class="game-letters" aria-label="點字母，拼出英文單字" hidden></div>
+              <form id="game-answer-form"><label id="game-answer-label" class="sr-only" for="game-answer">你的英文答案</label><input id="game-answer" type="text" maxlength="300" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="在這裡輸入英文答案"><button id="game-clear-answer" class="text-button" type="button" hidden>清空，重新拼字</button><button id="game-submit" class="primary" type="submit">檢查答案</button></form>
+              <p id="game-feedback" class="game-feedback" role="status" aria-live="polite" hidden></p>
+              <p id="game-explanation" class="game-hint-text" hidden></p><p id="game-example" class="game-hint-text" hidden></p>
+              <button id="game-next" class="primary game-next" type="button" hidden>下一關 →</button>
+            </div>
+            <button id="game-restart" class="download-button" type="button">套用夥伴／玩法，重新挑戰</button>
+          </div>
+        </section>
+        <p id="image-learning-note" class="image-learning-note">圖片會傳到目前登入的 ChatGPT 對話，需要網路及可使用圖片的帳號。對話、文法和測驗可在左側繼續回答；要練口說，可開啟 ChatGPT 語音。</p>
       </section>
       <div class="aside-footer"><button id="microphone" class="text-button" title="重設 ChatGPT 的麥克風權限">麥克風設定</button><button id="test-speech" class="text-button">測試聲音</button><button id="licenses" class="text-button">來源與授權</button></div>
     </aside>

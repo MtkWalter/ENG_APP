@@ -1,7 +1,7 @@
 {
   "name": "milo-english-windows",
   "productName": "Milo English",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Milo 英文學習 Windows 桌面版：圖片教學、角色單字遊戲、語音與離線字典",
   "author": "MtkWalter",
   "private": true,
@@ -14,6 +14,9 @@
     "test:desktop": "node scripts/test-desktop.cjs",
     "pretest:images": "node scripts/generate-preload.cjs",
     "test:images": "node scripts/test-image-learning.cjs",
+    "test:game-reader": "node scripts/test-game-pack-reader.cjs",
+    "pretest:games": "node scripts/generate-preload.cjs",
+    "test:games": "node scripts/test-native-games.cjs",
     "test:translation": "node scripts/test-translation.cjs",
     "test:speech": "node scripts/test-speech.cjs",
     "pretest:media": "node scripts/generate-preload.cjs",

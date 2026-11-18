@@ -19,6 +19,7 @@ child.on('exit', code => {
     assert.equal(result.ok, true); assert.equal(result.platform, 'win32'); assert.equal(result.arch, 'x64');
     assert.equal(result.imageLearning.normalized, true);
     assert.deepEqual(result.imageLearning.characters, ['kuromi', 'cinnamoroll']);
+    assert.deepEqual(result.nativeGameStyles, ['puzzle', 'pet', 'quest']);
     console.log('Packaged Windows application self-test passed:', result);
   } catch (error) { console.error(error); process.exitCode = 1; }
 });
