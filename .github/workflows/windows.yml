@@ -1,0 +1,78 @@
+name: Milo Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['windows/**', '.github/workflows/windows.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: milo-windows-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: windows
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            windows
+            .github
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run test:desktop
+      - run: npm run test:images
+      - run: npm run test:game-reader
+      - run: npm run test:games
+      - run: npm run test:performance
+      - run: npm run test:media
+      - run: npm run test:speech
+      - run: npm run test:translation
+        env:
+          MILO_MODEL_DIR: ${{ runner.temp }}/milo-model
+      - run: npm run build:win
+      - run: npm run test:packaged
+        env:
+          MILO_MODEL_DIR: ${{ runner.temp }}/milo-model
+      - name: Compute download checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | Sort-Object Name | ForEach-Object {
+            $digest = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $($_.Name)"
+          } | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          Copy-Item README.md dist/README-Windows.md
+          Copy-Item PERFORMANCE.md dist/PERFORMANCE.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Milo-English-Windows-x64
+          path: |
+            windows/dist/*.exe
+            windows/dist/*.zip
+            windows/dist/SHA256SUMS.txt
+            windows/dist/README-Windows.md
+            windows/dist/PERFORMANCE.md
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Milo-Windows-test-evidence
+          path: windows/test-results/
+          if-no-files-found: ignore

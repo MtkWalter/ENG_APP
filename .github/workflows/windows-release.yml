@@ -1,0 +1,118 @@
+name: Publish verified Windows downloads
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/windows-desktop']
+    paths: ['.github/workflows/windows-release.yml', 'windows/package.json', 'windows/RELEASE-NOTES.md']
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'MtkWalter/ENG_APP'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: MtkWalter/ENG_APP
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            windows/package.json
+            windows/RELEASE-NOTES.md
+          sparse-checkout-cone-mode: false
+      - name: Wait for the Windows tests and packaged executable
+        id: build
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const source = execFileSync('git', ['log', '-1', '--format=%H', '--', 'windows'], { encoding: 'utf8' }).trim();
+          execFileSync('git', ['diff', '--quiet', source, 'HEAD', '--', 'windows']);
+          (async () => {
+            for (let attempt = 0; attempt < 60; attempt++) {
+              const data = JSON.parse(execFileSync('gh', ['api', '-X', 'GET', 'repos/MtkWalter/ENG_APP/actions/runs', '-f', 'head_sha=' + source, '-f', 'per_page=30'], { encoding: 'utf8' }));
+              const runs = data.workflow_runs.filter(run => run.name === 'Milo Windows' && run.head_sha === source);
+              const success = runs.find(run => run.conclusion === 'success');
+              if (success) { fs.appendFileSync(process.env.GITHUB_OUTPUT, 'run_id=' + success.id + '\nsource_sha=' + source + '\n'); return; }
+              if (attempt > 2 && runs.length && runs.every(run => run.status === 'completed') && runs.some(run => run.conclusion === 'failure')) throw new Error('Windows verification failed; release stays unpublished');
+              console.log('Waiting for Windows verification, attempt ' + (attempt + 1));
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            throw new Error('Windows verification did not complete in time');
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
+      - uses: actions/download-artifact@v4
+        with:
+          name: Milo-English-Windows-x64
+          run-id: ${{ steps.build.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: downloads
+      - name: Verify all build checksums
+        working-directory: downloads
+        run: |
+          sed -i 's/\r$//' SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+      - name: Stage and publish the verified release
+        env:
+          SOURCE_SHA: ${{ steps.build.outputs.source_sha }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
+          const version = JSON.parse(fs.readFileSync('windows/package.json')).version;
+          assert.match(version, /^\d+\.\d+\.\d+$/);
+          const tag = 'windows-v' + version;
+          const source = process.env.SOURCE_SHA;
+          const names = ['Milo-English-Windows-' + version + '-x64-Portable.exe', 'Milo-English-Windows-' + version + '-x64-Setup.exe', 'README-Windows.md'];
+          if (fs.existsSync('downloads/PERFORMANCE.md')) names.push('PERFORMANCE.md');
+          const sums = names.filter(name => name.endsWith('.exe')).map(name => crypto.createHash('sha256').update(fs.readFileSync('downloads/' + name)).digest('hex') + '  ' + name);
+          fs.writeFileSync('downloads/SHA256SUMS.txt', sums.join('\n') + '\n'); names.push('SHA256SUMS.txt');
+          const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
+          const releases = JSON.parse(gh(['api', 'repos/MtkWalter/ENG_APP/releases?per_page=100']));
+          let release = releases.find(item => item.tag_name === tag);
+          if (!release) {
+            const payload = { tag_name: tag, target_commitish: source, draft: true, prerelease: true,
+              name: 'Milo English ' + version + ' - Windows x64', body: fs.readFileSync('windows/RELEASE-NOTES.md', 'utf8') };
+            release = JSON.parse(gh(['api', '--method', 'POST', 'repos/MtkWalter/ENG_APP/releases', '--input', '-'], JSON.stringify(payload)));
+          }
+          assert.equal(release.target_commitish, source, 'Never replace a release built from different source');
+          function verify(asset, name) {
+            const data = fs.readFileSync('downloads/' + name);
+            assert.equal(asset.state, 'uploaded'); assert.equal(asset.size, data.length);
+            assert.equal(asset.digest, 'sha256:' + crypto.createHash('sha256').update(data).digest('hex'));
+          }
+          for (const name of names) {
+            const existing = release.assets.find(item => item.name === name);
+            if (existing) verify(existing, name);
+            else { assert.equal(release.draft, true); gh(['release', 'upload', tag, 'downloads/' + name]); }
+          }
+          release = JSON.parse(gh(['api', 'repos/MtkWalter/ENG_APP/releases/' + release.id]));
+          for (const name of names) { const asset = release.assets.find(item => item.name === name); assert.ok(asset, name); verify(asset, name); }
+          gh(['release', 'edit', tag, '--draft=false', '--latest=false']);
+          console.log('Published verified release: https://github.com/MtkWalter/ENG_APP/releases/tag/' + tag);
+          NODE
+      - name: Confirm downloads work without signing in
+        run: |
+          node <<'NODE'
+          (async () => {
+            const version = require('./windows/package.json').version;
+            const base = 'https://github.com/MtkWalter/ENG_APP/releases/';
+            for (const suffix of ['tag/windows-v' + version, ...['Portable', 'Setup'].map(kind => 'download/windows-v' + version + '/Milo-English-Windows-' + version + '-x64-' + kind + '.exe')]) {
+              const result = await fetch(base + suffix, { method: 'HEAD' });
+              if (result.status !== 200) throw new Error('Anonymous download returned ' + result.status);
+              console.log('Public download OK: ' + suffix);
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE

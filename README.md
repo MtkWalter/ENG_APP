@@ -1,5 +1,7 @@
 # Milo 2.0.0 單字 KK／中文小視窗與語音排版
 
+新增 **Windows 10 / 11 x64 桌面版**，保留 ChatGPT 語音專注、字體縮放、點字 KK／繁體中文、朗讀與離線整句翻譯。原始碼、操作說明與建置方式見 [Windows 版說明](windows/README.md)；Windows 建置流程會產出安裝版、免安裝版與 ZIP。
+
 [OPPO Reno13 Pro 請下載這個 APK（arm64，約 24 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.0-arm64.apk)
 
 [其他架構可下載通用 APK（約 71 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.0.apk)

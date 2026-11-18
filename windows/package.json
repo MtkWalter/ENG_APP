@@ -1,0 +1,79 @@
+{
+  "name": "milo-english-windows",
+  "productName": "Milo English",
+  "version": "2.2.0",
+  "description": "Milo 英文學習 Windows 桌面版：圖片教學、角色單字遊戲、語音與離線字典",
+  "author": "MtkWalter",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "prestart": "node scripts/generate-preload.cjs",
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "pretest:desktop": "node scripts/generate-preload.cjs",
+    "test:desktop": "node scripts/test-desktop.cjs",
+    "pretest:images": "node scripts/generate-preload.cjs",
+    "test:images": "node scripts/test-image-learning.cjs",
+    "test:game-reader": "node scripts/test-game-pack-reader.cjs",
+    "pretest:games": "node scripts/generate-preload.cjs",
+    "test:games": "node scripts/test-native-games.cjs",
+    "test:translation": "node scripts/test-translation.cjs",
+    "test:speech": "node scripts/test-speech.cjs",
+    "pretest:media": "node scripts/generate-preload.cjs",
+    "test:media": "node scripts/test-media.cjs",
+    "pretest:performance": "node scripts/generate-preload.cjs",
+    "test:performance": "node scripts/test-performance.cjs",
+    "prebuild:win": "node scripts/generate-preload.cjs && node scripts/prepare-runtime.cjs",
+    "build:win": "electron-builder --win nsis portable zip --x64 --publish never",
+    "prebuild:unpacked": "node scripts/generate-preload.cjs && node scripts/prepare-runtime.cjs",
+    "build:unpacked": "electron-builder --win --x64 --dir --publish never",
+    "test:packaged": "node scripts/test-packaged.cjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "opencc-js": "1.0.5",
+    "sharp": "0.34.5",
+    "sql.js": "1.14.1"
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0",
+    "playwright": "1.65.1"
+  },
+  "overrides": { "sharp": "0.34.5" },
+  "build": {
+    "appId": "com.mtkwalter.milo.english",
+    "productName": "Milo English",
+    "copyright": "Copyright © 2026 MtkWalter",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["src/**/*", "build/chat-preload.cjs", "assets/**/*", "README.md", "PERFORMANCE.md", "THIRD-PARTY-NOTICES.md", "package.json"],
+    "extraFiles": [{ "from": "build/runtime", "to": ".", "filter": ["*.dll", "README.txt"] }],
+    "asar": true,
+    "asarUnpack": ["node_modules/onnxruntime-node/**/*", "node_modules/@img/**/*", "node_modules/sharp/**/*"],
+    "npmRebuild": false,
+    "afterPack": "scripts/after-pack.cjs",
+    "win": {
+      "target": ["nsis", "portable", "zip"],
+      "executableName": "Milo-English",
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true,
+      "artifactName": "Milo-English-Windows-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "Milo-English-Windows-${version}-${arch}-Setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Milo English",
+      "installerLanguages": ["zh_TW", "en_US"],
+      "language": "1028",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "Milo-English-Windows-${version}-${arch}-Portable.${ext}",
+      "requestExecutionLevel": "user"
+    }
+  }
+}
