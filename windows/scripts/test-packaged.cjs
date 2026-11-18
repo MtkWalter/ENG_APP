@@ -17,6 +17,8 @@ child.on('exit', code => {
     assert.equal(code, 0, 'Packaged executable exits successfully');
     const result = JSON.parse(fs.readFileSync(report, 'utf8'));
     assert.equal(result.ok, true); assert.equal(result.platform, 'win32'); assert.equal(result.arch, 'x64');
+    assert.equal(result.imageLearning.normalized, true);
+    assert.deepEqual(result.imageLearning.characters, ['kuromi', 'cinnamoroll']);
     console.log('Packaged Windows application self-test passed:', result);
   } catch (error) { console.error(error); process.exitCode = 1; }
 });

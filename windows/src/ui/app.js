@@ -1,6 +1,84 @@
 'use strict';
 const $ = id => document.getElementById(id);
 let state = {}, result = null, toastTimer, audio = null, speechSequence = 0;
+let imageLesson = { image: null, mode: 'conversation', status: 'idle', error: '', message: '' };
+let imageRequestPending = false, imageStateSeen = false;
+const imageModeDescriptions = {
+  conversation: 'ChatGPT 會先描述圖片，再一次問你一個簡單問題，陪你用英文回答。',
+  grammar: '從圖片中的人物與動作練句型，一次造一句，讓 ChatGPT 幫你修正並解釋。',
+  quiz: '依照圖片一次出一題，先讓你回答，再說明答案，接著挑戰下一題。',
+  vocabulary: '先認識圖片中的英文單字，再跟讀發音、玩拼字。口說練習請開啟 ChatGPT 語音。'
+};
+const imageBusy = () => imageRequestPending || ['preparing', 'uploading', 'sending'].includes(imageLesson.status);
+const selectedImageMode = () => document.querySelector('input[name="image-mode"]:checked').value;
+const selectedImageCharacter = () => document.querySelector('input[name="image-character"]:checked').value;
+function showLearningTab(name) {
+  for (const tab of ['dictionary', 'image']) {
+    const active = tab === name;
+    $(tab + '-tab').setAttribute('aria-selected', String(active));
+    $(tab + '-tab').tabIndex = active ? 0 : -1;
+    $(tab + '-panel').hidden = !active;
+  }
+}
+function renderImageControls() {
+  const busy = imageBusy();
+  const hasImage = !!imageLesson.image;
+  $('image-modes').disabled = busy;
+  $('focus').disabled = busy;
+  $('image-mode-description').textContent = imageModeDescriptions[selectedImageMode()];
+  $('image-characters').hidden = selectedImageMode() !== 'vocabulary';
+  $('image-characters').disabled = busy;
+  const character = selectedImageCharacter();
+  const characterName = character === 'cinnamoroll' ? '大耳狗' : '庫洛米';
+  const characterSource = '../../assets/game-' + character + '.png';
+  if ($('character-preview').getAttribute('src') !== characterSource) $('character-preview').src = characterSource;
+  $('character-preview').alt = characterName + '學習夥伴';
+  $('character-name').textContent = characterName + '陪你闖關';
+  $('image-pick').disabled = busy;
+  $('image-pick').textContent = hasImage ? '更換圖片，開始學習' : '載入圖片，開始學習';
+  $('image-start').disabled = busy || !hasImage;
+  $('image-start').textContent = imageLesson.status === 'sent' && selectedImageMode() === imageLesson.mode ? '重新開始這個模式' : '開始這個模式';
+  $('image-clear').disabled = busy;
+  $('image-session-actions').hidden = !hasImage;
+  $('image-cancel').hidden = !busy;
+  $('image-status').parentElement.dataset.busy = String(busy);
+}
+function renderImageLesson(value) {
+  if (!value || typeof value !== 'object') return;
+  imageLesson = { image: null, mode: 'conversation', status: 'idle', error: '', message: '', ...value };
+  imageStateSeen = true;
+  const image = imageLesson.image;
+  $('image-preview-card').hidden = !image;
+  const preview = typeof image?.preview === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/.test(image.preview) ? image.preview : '';
+  if ($('image-preview').getAttribute('src') !== preview) {
+    if (preview) $('image-preview').src = preview;
+    else $('image-preview').removeAttribute('src');
+  }
+  $('image-name').textContent = image?.name || '練習圖片';
+  $('image-metadata').textContent = Number.isFinite(image?.width) && Number.isFinite(image?.height) ? `${image.width} × ${image.height}` : '';
+  const messages = {
+    idle: image ? '圖片已載入，選好模式後即可開始。' : '準備好圖片後，按上方按鈕開始。',
+    preparing: '正在準備圖片…', uploading: '正在將圖片加入 ChatGPT…',
+    sending: '正在傳送圖片與學習指令…',
+    sent: '學習指令已送出。請在左側查看 ChatGPT 回覆，繼續練習。',
+    error: '這次操作尚未完成，請查看下方說明後重試。', cancelled: '已取消本次操作。'
+  };
+  $('image-status').textContent = imageLesson.message || messages[imageLesson.status] || messages.idle;
+  $('image-error').textContent = imageLesson.error || '';
+  $('image-error').hidden = !imageLesson.error;
+  $('image-status').parentElement.dataset.error = String(!!imageLesson.error);
+  renderImageControls();
+}
+async function imageAction(action) {
+  if (imageBusy()) return;
+  imageRequestPending = true; renderImageControls();
+  try {
+    const response = await action();
+    if (response?.error) renderImageLesson({ ...imageLesson, status: 'error', error: response.error, message: '' });
+  } catch {
+    renderImageLesson({ ...imageLesson, status: 'error', error: '圖片學習暫時無法啟動，請重試。', message: '' });
+  } finally { imageRequestPending = false; renderImageControls(); }
+}
 function toast(text) { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 6500); }
 function bounds() {
   const box = $('chat-host').getBoundingClientRect();
@@ -22,6 +100,7 @@ function renderState(value) {
   $('download').textContent = state.preparing ? '正在準備離線模型…' : state.translationReady ? '重新檢查 / 下載模型' : '下載離線模型（約 120 MB）';
   $('download').disabled = state.preparing;
   if (!state.preparing) $('progress').hidden = true;
+  if (state.imageLesson && !imageStateSeen) renderImageLesson(state.imageLesson);
 }
 function stopSpeech() {
   speechSequence++;
@@ -35,6 +114,7 @@ function renderLookup(value) {
   $('translation-error').hidden = true;
   $('speech-note').textContent = '';
   if (!value) return;
+  showLearningTab('dictionary');
   $('lookup').classList.toggle('sentence', value.kind === 'sentence');
   $('lookup-kind').textContent = value.kind === 'word' ? 'WORD EXPLORER' : 'SENTENCE EXPLORER';
   $('english').textContent = value.text;
@@ -81,6 +161,25 @@ $('slow').addEventListener('click', () => speak(0.5));
 $('stop').addEventListener('click', stopSpeech);
 $('test-speech').addEventListener('click', () => speak(1, true));
 $('download').addEventListener('click', () => window.milo.prepareTranslation());
+for (const name of ['dictionary', 'image']) {
+  $(name + '-tab').addEventListener('click', () => showLearningTab(name));
+  $(name + '-tab').addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 'dictionary' : event.key === 'End' ? 'image' : name === 'dictionary' ? 'image' : 'dictionary';
+    showLearningTab(next); $(next + '-tab').focus();
+  });
+}
+$('image-learning').addEventListener('click', () => { showLearningTab('image'); $('image-pick').focus(); });
+$('image-modes').addEventListener('change', renderImageControls);
+$('image-characters').addEventListener('change', renderImageControls);
+$('image-pick').addEventListener('click', () => imageAction(() => window.milo.pickImage(selectedImageMode(), selectedImageCharacter())));
+$('image-start').addEventListener('click', () => imageAction(() => window.milo.startImageLesson(selectedImageMode(), selectedImageCharacter())));
+$('image-clear').addEventListener('click', () => imageAction(() => window.milo.clearImage()));
+$('image-cancel').addEventListener('click', async () => {
+  try { await window.milo.cancelImageLesson(); }
+  catch { toast('暫時無法取消，請稍後重試。'); }
+});
 document.addEventListener('keydown', event => { if (event.key === 'Escape') window.milo.clear(); });
 window.addEventListener('beforeunload', stopSpeech);
 window.milo.on(({ type, data }) => {
@@ -88,7 +187,8 @@ window.milo.on(({ type, data }) => {
   if (type === 'lookup') renderLookup(data);
   if (type === 'notice') toast(data);
   if (type === 'stop-speech') stopSpeech();
-  if (type === 'focus-search') { $('search').focus(); $('search').select(); }
+  if (type === 'focus-search') { showLearningTab('dictionary'); $('search').focus(); $('search').select(); }
+  if (type === 'image-lesson') renderImageLesson(data);
   if (type === 'progress') {
     $('progress').hidden = false;
     const file = String(data.file || '').split('/').pop();

@@ -1,8 +1,8 @@
 {
   "name": "milo-english-windows",
   "productName": "Milo English",
-  "version": "2.0.4",
-  "description": "Milo 英文學習 Windows 桌面版：ChatGPT 語音、離線 KK 與繁體中文",
+  "version": "2.1.0",
+  "description": "Milo 英文學習 Windows 桌面版：圖片教學、角色單字遊戲、語音與離線字典",
   "author": "MtkWalter",
   "private": true,
   "main": "src/main.cjs",
@@ -12,6 +12,8 @@
     "test": "node --test test/*.test.cjs",
     "pretest:desktop": "node scripts/generate-preload.cjs",
     "test:desktop": "node scripts/test-desktop.cjs",
+    "pretest:images": "node scripts/generate-preload.cjs",
+    "test:images": "node scripts/test-image-learning.cjs",
     "test:translation": "node scripts/test-translation.cjs",
     "test:speech": "node scripts/test-speech.cjs",
     "pretest:media": "node scripts/generate-preload.cjs",
@@ -27,6 +29,7 @@
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
     "opencc-js": "1.0.5",
+    "sharp": "0.34.5",
     "sql.js": "1.14.1"
   },
   "devDependencies": {

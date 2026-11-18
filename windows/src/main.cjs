@@ -9,6 +9,9 @@ const { readSettings, writeSettings } = require('./settings.cjs');
 const { Translation } = require('./translation.cjs');
 const { NativeSpeech, validateWave } = require('./speech.cjs');
 const { createMediaPermissions } = require('./media-permissions.cjs');
+const { buildLessonPrompt } = require('./image-lessons.cjs');
+const { prepareLessonImage } = require('./image-files.cjs');
+const { sendImageLesson } = require('./image-chat.cjs');
 
 const CHAT_URL = 'https://chatgpt.com/';
 const TEST = !app.isPackaged && process.env.MILO_TEST_MODE === '1';
@@ -17,6 +20,8 @@ app.setName('Milo English');
 let main, chat, settings, translator, speech, dictionaryPromise, awake;
 let sequence = 0, currentLookup = null, closing = false;
 let chatLoadFailed = false;
+let lessonImage = null, lessonAbort = null, lessonJob = null, lessonRequest = 0;
+const imageLesson = { image: null, mode: 'conversation', character: 'kuromi', status: 'idle', message: '', error: '' };
 const state = { version: app.getVersion(), loading: true, error: '', zoom: 1, focus: true,
   dictionary: false, translationReady: false, preparing: false };
 const assets = path.join(__dirname, '..', 'assets', 'android');
@@ -29,6 +34,64 @@ function emit(type, data) {
   if (main && !main.isDestroyed() && !main.webContents.isDestroyed()) main.webContents.send('shell:event', { type, data });
 }
 function publish(patch = {}) { Object.assign(state, patch); emit('state', state); }
+function publishImage(patch = {}) { Object.assign(imageLesson, patch); emit('image-lesson', imageLesson); }
+async function stopImageJob() {
+  lessonAbort?.abort();
+  if (lessonJob) await lessonJob.catch(() => {});
+}
+async function launchImageLesson(request, mode, character) {
+  const prompt = buildLessonPrompt(mode, character);
+  if (request !== lessonRequest) return {};
+  if (!lessonImage) { publishImage({ status: 'error', error: '請先載入一張圖片。' }); return {}; }
+  const controller = new AbortController(); lessonAbort = controller;
+  publishImage({ mode, character, status: 'uploading', error: '', message: '正在準備 ChatGPT 圖片教學…' });
+  lessonJob = (async () => {
+    try {
+      if (!chat || chat.webContents.isDestroyed() || !isChatURL(chat.webContents.getURL())) throw new Error('請先登入 ChatGPT，再開始圖片學習。');
+      // Picture quizzes and spelling need a visible text box for the next turn.
+      // Keep the displayed focus setting truthful and let the user switch back.
+      if (settings.focus) { settings.focus = false; save(); publish({ focus: false }); }
+      await applyMode();
+      await chat.webContents.executeJavaScript("window.__miloCompactComposerV1?.stop()");
+      await sendImageLesson(chat.webContents, lessonImage.filePath, prompt, { signal: controller.signal,
+        onStatus: (status, message) => { if (request === lessonRequest) publishImage({ status, message }); } });
+      if (request === lessonRequest) publishImage({ status: 'sent', error: '', message: '圖片與學習指令已送出，ChatGPT 將從圖片開始教學。' });
+    } catch (error) {
+      if (request === lessonRequest) publishImage(error.name === 'AbortError'
+        ? { status: 'cancelled', error: '', message: '已停止自動操作；已附加的圖片或文字可能仍在 ChatGPT 輸入區，請檢查後再試。' }
+        : { status: 'error', error: error.message, message: '已停止自動傳送。請檢查 ChatGPT 輸入區的圖片與文字，再決定是否重試。' });
+    } finally {
+      if (lessonAbort === controller) lessonAbort = null;
+      if (!closing) await applyMode();
+    }
+    return {};
+  })();
+  return lessonJob;
+}
+async function pickLessonImage(mode, character = 'kuromi') {
+  buildLessonPrompt(mode, character);
+  const request = ++lessonRequest;
+  await stopImageJob();
+  if (request !== lessonRequest) return {};
+  const picked = TEST && process.env.MILO_TEST_IMAGE ? { canceled: false, filePaths: [process.env.MILO_TEST_IMAGE] }
+    : await dialog.showOpenDialog(main, { title: '載入圖片，開始英文學習', properties: ['openFile'],
+      filters: [{ name: '圖片（PNG、JPG、WebP）', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+  if (request !== lessonRequest) return {};
+  if (picked.canceled || !picked.filePaths[0]) { publishImage({ status: 'idle', error: '', message: '尚未更換圖片。' }); return {}; }
+  publishImage({ mode, character, status: 'preparing', error: '', message: '正在準備圖片與預覽…' });
+  let prepared;
+  try {
+    prepared = await prepareLessonImage(picked.filePaths[0]);
+    if (request !== lessonRequest || closing) { await prepared.dispose(); return {}; }
+    const old = lessonImage; lessonImage = prepared;
+    publishImage({ image: { name: prepared.name, preview: prepared.preview, width: prepared.width, height: prepared.height } });
+    if (old) await old.dispose();
+    return launchImageLesson(request, mode, character);
+  } catch (error) {
+    if (request === lessonRequest) publishImage({ status: 'error', error: error.message, message: '' });
+    return {};
+  }
+}
 function save() {
   try { writeSettings(app.getPath('userData'), settings); }
   catch { emit('notice', '設定暫時無法儲存；本次仍可使用。'); }
@@ -122,6 +185,7 @@ function protectNavigation(contents) {
   contents.on('did-create-window', child => protectNavigation(child.webContents));
 }
 function loadChat(url = CHAT_URL) {
+  lessonAbort?.abort();
   clearLookup();
   chatLoadFailed = false;
   publish({ loading: true, error: '' });
@@ -131,6 +195,36 @@ function loadChat(url = CHAT_URL) {
 
 function installIPC() {
   ipcMain.handle('shell:state', event => isShell(event) ? state : null);
+  ipcMain.handle('shell:image-pick', async (event, mode, character) => {
+    if (!isShell(event)) return {};
+    try { return await pickLessonImage(mode, character); } catch { return { error: '請選擇有效的圖片學習模式與角色。' }; }
+  });
+  ipcMain.handle('shell:image-start', async (event, mode, character = 'kuromi') => {
+    if (!isShell(event)) return {};
+    try {
+      buildLessonPrompt(mode, character);
+      const request = ++lessonRequest;
+      await stopImageJob();
+      return launchImageLesson(request, mode, character);
+    } catch { return { error: '請選擇有效的圖片學習模式與角色。' }; }
+  });
+  ipcMain.handle('shell:image-cancel', async event => {
+    if (!isShell(event)) return {};
+    const request = ++lessonRequest;
+    await stopImageJob();
+    if (request === lessonRequest) publishImage({ status: 'cancelled', error: '', message: '已取消自動傳送。請檢查 ChatGPT 輸入區，避免重複附加圖片。' });
+    return {};
+  });
+  ipcMain.handle('shell:image-clear', async event => {
+    if (!isShell(event)) return {};
+    const request = ++lessonRequest;
+    await stopImageJob();
+    if (request !== lessonRequest) return {};
+    const old = lessonImage; lessonImage = null;
+    if (old) await old.dispose();
+    publishImage({ image: null, status: 'idle', error: '', message: '已清除本機圖片預覽；ChatGPT 對話中的圖片不會因此刪除。' });
+    return {};
+  });
   ipcMain.handle('shell:lookup', (event, text) => isShell(event) ? lookup(text) : {});
   ipcMain.handle('shell:clear', event => { if (isShell(event)) clearLookup(); });
   const renderSpeech = async (event, text) => {
@@ -245,6 +339,7 @@ async function createWindow() {
   });
   installIPC();
   await main.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  publishImage();
   main.once('ready-to-show', () => { if (!closing) { main.show(); updateAwake(); } });
   // ready-to-show may occur while loadFile is resolving.
   main.show(); updateAwake();
@@ -253,6 +348,12 @@ async function createWindow() {
   main.on('hide', updateAwake);
   main.on('close', () => {
     closing = true;
+    lessonRequest++; lessonAbort?.abort();
+    if (lessonImage) {
+      const image = lessonImage; lessonImage = null;
+      try { fs.rmSync(path.dirname(image.filePath), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }); }
+      catch { void image.dispose().catch(() => {}); }
+    }
     [settings.width, settings.height] = main.getSize(); save();
     translator.close(); speech.stop(); emit('stop-speech', null);
     if (chat && !chat.webContents.isDestroyed()) chat.webContents.close();
@@ -279,6 +380,18 @@ async function selfTest() {
     const entry = dictionary.lookup('new');
     if (!entry?.kk || !entry.chinese.includes('新的')) throw new Error('Bundled dictionary lookup failed');
     dictionary.close();
+    // Exercise actual packaged sharp/native files using a local selected-image
+    // equivalent, without a ChatGPT account or a network upload.
+    const imageSource = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'milo-image-self-test-'));
+    let preparedImage;
+    try {
+      const source = path.join(imageSource, 'sample.png');
+      fs.writeFileSync(source, fs.readFileSync(path.join(__dirname, '..', 'assets', 'icon.png')));
+      preparedImage = await prepareLessonImage(source);
+      if (!preparedImage.preview.startsWith('data:image/jpeg;base64,') || !buildLessonPrompt('vocabulary', 'cinnamoroll').includes('大耳狗')) throw new Error('Packaged image learning failed');
+      for (const character of ['kuromi', 'cinnamoroll']) if (!fs.existsSync(path.join(__dirname, '..', 'assets', 'game-' + character + '.png'))) throw new Error('Missing game character artwork');
+    } finally { await preparedImage?.dispose(); fs.rmSync(imageSource, { recursive: true, force: true }); }
+    const imageLearning = { normalized: true, width: preparedImage.width, height: preparedImage.height, characters: ['kuromi', 'cinnamoroll'] };
     // Importing the full pipeline also loads the packaged Windows sharp / ONNX N-API libraries.
     await import('@huggingface/transformers');
     let nativeSpeech = null;
@@ -297,7 +410,7 @@ async function selfTest() {
       if (!/[\u4e00-\u9fff]/.test(translation) || /[这书]/.test(translation)) throw new Error('Packaged offline translation failed');
     }
     if (report) fs.writeFileSync(report, JSON.stringify({ ok: true, platform: process.platform,
-      arch: process.arch, version: app.getVersion(), dictionary: entry, translation, nativeSpeech }, null, 2));
+      arch: process.arch, version: app.getVersion(), dictionary: entry, translation, nativeSpeech, imageLearning }, null, 2));
     service?.close(); app.exit(0);
   } catch (error) {
     if (report) fs.writeFileSync(report, JSON.stringify({ ok: false, error: error.message, cause: String(error.cause || '') }, null, 2));
