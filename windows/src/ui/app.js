@@ -265,13 +265,14 @@ function stopSpeech() {
   void window.milo.stopSpeech();
 }
 function renderLookup(value) {
+  const newSelection = !!value && value.id !== result?.id;
   if (!value || value.id !== result?.id) stopSpeech();
   result = value;
   $('lookup').hidden = !value; $('welcome').hidden = !!value;
   $('translation-error').hidden = true;
   $('speech-note').textContent = '';
   if (!value) return;
-  showLearningTab('dictionary');
+  if (newSelection) showLearningTab('dictionary');
   $('lookup').classList.toggle('sentence', value.kind === 'sentence');
   $('lookup-kind').textContent = value.kind === 'word' ? 'WORD EXPLORER' : 'SENTENCE EXPLORER';
   $('english').textContent = value.text;

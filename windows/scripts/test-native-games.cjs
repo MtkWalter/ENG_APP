@@ -99,6 +99,14 @@ async function capture(name) {
     assert.equal(await page.locator('#game-play').isVisible(), true);
     assert.equal((await snapshot()).task.kind, 'memory');
     assert.equal((await snapshot()).progress.total, 8);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('shell:event',
+      { type: 'lookup', data: { id: 7001, text: 'garden', kind: 'word', kk: '', chinese: '' } }));
+    await page.waitForFunction(() => document.getElementById('dictionary-tab').getAttribute('aria-selected') === 'true');
+    await page.locator('#image-tab').click();
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('shell:event',
+      { type: 'lookup', data: { id: 7001, text: 'garden', kind: 'word', kk: '', chinese: '花園', translated: true } }));
+    await page.waitForFunction(() => document.getElementById('chinese').textContent === '花園');
+    assert.equal(await page.locator('#image-tab').getAttribute('aria-selected'), 'true', 'a late dictionary translation must not switch away from the game');
     await page.evaluate(() => {
       const grid = document.getElementById('game-puzzle-grid');
       const original = grid.replaceChildren.bind(grid);
@@ -242,7 +250,7 @@ async function capture(name) {
       puzzle: { rearrangedLetters: true, revealed: puzzle.puzzle.revealed, total: puzzle.puzzle.total, assisted: puzzle.assisted },
       localRestartsWithoutUpload: true, validatedMaterialCollapsed: true, originalMaterialToggleWorks: true,
       rendering: { hiddenGridRebuilds, hintGridRebuilds, progressGridRebuilds },
-      nativeSidebarPreserved: true, invalidPackRejected: true, waitingCancellationUnlocksControls: true, speech,
+      nativeSidebarPreserved: true, lateDictionaryResultKeepsGameVisible: true, invalidPackRejected: true, waitingCancellationUnlocksControls: true, speech,
       limitation: 'Actual packaged-source Electron UI/IPC/gameplay with synthetic ChatGPT image教材; no real image understanding or pronunciation assessment verified.' };
     fs.writeFileSync(path.join(root, 'test-results', 'native-games.json'), JSON.stringify(report, null, 2));
     console.log('Native learning games passed:', JSON.stringify(report));
