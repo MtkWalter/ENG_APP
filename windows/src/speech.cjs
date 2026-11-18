@@ -4,6 +4,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { normalizeSelection } = require('./policy.cjs');
 const script = fs.readFileSync(path.join(__dirname, 'windows-speech.ps1'), 'utf8');
+const CACHE_ENTRIES = 8;
+const CACHE_BYTES = 8 * 1024 * 1024;
 
 function validateWave(buffer) {
   if (buffer.length < 44 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') return false;
@@ -19,6 +21,19 @@ function validateWave(buffer) {
 class NativeSpeech {
   constructor({ platform = process.platform, spawnProcess = spawn } = {}) {
     this.platform = platform; this.spawnProcess = spawnProcess; this.pending = null;
+    // Audio remains in memory only. Count UTF-16 storage of both the text key and
+    // the base64 response, so repeated long sentences cannot grow this cache.
+    this.cache = new Map(); this.cacheBytes = 0;
+  }
+  remember(text, response) {
+    const bytes = (text.length + response.audio.length + response.voice.length) * 2 + 64;
+    if (bytes > CACHE_BYTES) return;
+    while (this.cache.size >= CACHE_ENTRIES || this.cacheBytes + bytes > CACHE_BYTES) {
+      const oldest = this.cache.keys().next().value;
+      this.cacheBytes -= this.cache.get(oldest).bytes; this.cache.delete(oldest);
+    }
+    this.cache.set(text, { response: Object.freeze({ ...response }), bytes });
+    this.cacheBytes += bytes;
   }
   stop() {
     const pending = this.pending;
@@ -31,6 +46,11 @@ class NativeSpeech {
     const text = normalizeSelection(value);
     if (!text) return Promise.reject(new Error('請先選擇要朗讀的英文，最多 5,000 字元。'));
     if (this.platform !== 'win32') return Promise.reject(new Error('Windows 原生朗讀只在 Windows 版提供。'));
+    const cached = this.cache.get(text);
+    if (cached) {
+      this.cache.delete(text); this.cache.set(text, cached);
+      return Promise.resolve({ ...cached.response });
+    }
     const executable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     return new Promise((resolve, reject) => {
       const child = this.spawnProcess(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
@@ -57,7 +77,9 @@ class NativeSpeech {
           const bytes = Buffer.from(response.audio || '', 'base64');
           if (!validateWave(bytes)) throw new Error('Windows returned an empty or invalid WAV');
           this.pending = null; clearTimeout(pending.timer);
-          resolve({ audio: bytes.toString('base64'), voice: String(response.voice || 'Windows'), english: !!response.english });
+          const rendered = { audio: bytes.toString('base64'), voice: String(response.voice || 'Windows'), english: !!response.english };
+          this.remember(text, rendered);
+          resolve(rendered);
         } catch (error) { fail(error.message); }
       });
       child.stdin.end(JSON.stringify({ text }), 'utf8');

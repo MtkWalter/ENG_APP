@@ -82,7 +82,33 @@ async function run(mode) {
         scroll.appendChild(added);await pause();
         const newMessageWide=added.querySelector('.mx-auto').getAttribute('data-milo-wide-text')==='1';
         const newMessageFollow=scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<3;
-        behavior={manualScroll,followResumed,selectionStable,footerClearance,newMessageWide,newMessageFollow};
+        // Site CSS may enable smooth scrolling. Repeated streaming updates must not
+        // restart an animation that leaves the newest lines behind the composer.
+        scroll.style.scrollBehavior='smooth';
+        added.querySelector('p').textContent+=' More formatted content.'.repeat(160);
+        for(let i=0;i<4;i++) await new Promise(requestAnimationFrame);
+        const smoothScrollFollow=scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<3;
+        const smoothStylePreserved=scroll.style.scrollBehavior==='smooth';
+        // React can mount a turn before it mounts the message content. Inspect
+        // added subtrees between the turn and the author-role element as well.
+        const staged=document.createElement('article');staged.setAttribute('data-testid','conversation-turn-staged');staged.style.display='contents';
+        scroll.appendChild(staged);await pause();
+        staged.innerHTML='<div class="mx-auto"><div data-message-author-role="assistant"><p id="staged-reply">A reply mounted later.</p></div></div>';
+        await pause();
+        const stagedMessageWide=staged.querySelector('.mx-auto').getAttribute('data-milo-wide-text')==='1';
+        document.getElementById('staged-reply').textContent+=' More staged content.'.repeat(160);
+        for(let i=0;i<4;i++) await new Promise(requestAnimationFrame);
+        const stagedMessageFollow=scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<3;
+        // Formatted streaming remains local to the cached content box and must
+        // not reintroduce a full-history scan on each code/list insertion.
+        window.__resetMiloMetrics();
+        for(let i=0;i<20;i++) {
+          const formatted=document.createElement(i%2?'pre':'ul');formatted.textContent='Formatted chunk '+i;
+          staged.querySelector('[data-message-author-role]').appendChild(formatted);
+          await new Promise(requestAnimationFrame);
+        }
+        const formattedStreamingLocal=window.__getMiloMetrics().broadQueries===0;
+        behavior={manualScroll,followResumed,selectionStable,footerClearance,newMessageWide,newMessageFollow,smoothScrollFollow,smoothStylePreserved,stagedMessageWide,stagedMessageFollow,formattedStreamingLocal};
       }
       return {...metrics,bottomGap,behavior};
     })()`);

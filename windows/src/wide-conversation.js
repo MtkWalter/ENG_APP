@@ -37,7 +37,9 @@
       if (record.type === 'attributes') {
         if (wide.has(target)) { if (target.getAttribute('data-milo-wide-text') !== '1') target.setAttribute('data-milo-wide-text', '1'); }
         else if (target.matches(message)) visit(target);
-      } else if (!target.closest?.(message)) {
+      } else if (!target.closest?.('[data-message-author-role]')) {
+        // A turn can appear before its author-role content. Discover only these
+        // new subtrees; additions within an existing reply are streaming text.
         for (const node of record.addedNodes) if (node.nodeType === 1) pending.add(node);
         if ([...record.removedNodes].some(node => node.nodeType === 1)) prune = true;
       }

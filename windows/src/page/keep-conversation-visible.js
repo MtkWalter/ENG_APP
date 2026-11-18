@@ -63,7 +63,9 @@
     }
     if (following && !holding && !selectionActive()) {
       const end = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
-      if (Math.abs(scroll.scrollTop - end) > 1) scroll.scrollTop = end;
+      // A site's smooth-scroll CSS would restart an animation on every streamed
+      // line. Only our automatic follow is instant; retain the site's own style.
+      if (Math.abs(scroll.scrollTop - end) > 1) scroll.scrollTo({ top: end, behavior: 'instant' });
     }
   }
   const observer = new MutationObserver(records => {
@@ -72,8 +74,12 @@
       if (record.type === 'attributes') {
         if (record.attributeName === 'class') {
           if (target === state?.node || target.matches('main')) structureDirty = true;
-        } else if (record.attributeName === 'data-milo-composer-root' || target.matches(message)) structureDirty = true;
-      } else if (!target.closest?.(message) && [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1)) structureDirty = true;
+        } else if (record.attributeName === 'data-milo-composer-root' || record.attributeName === 'data-message-author-role' || target.matches(message)) structureDirty = true;
+      } else if (!target.closest?.('[data-message-author-role]') && [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1)) {
+        // React may mount an empty turn first and add the actual reply later.
+        // Once inside an author-role element, ResizeObserver handles streaming.
+        structureDirty = true;
+      }
     }
     if (structureDirty) schedule();
   });

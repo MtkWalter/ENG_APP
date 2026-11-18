@@ -5,13 +5,22 @@ const { MODEL, REVISION, chunks } = require('./translation-text.cjs');
 
 let translator;
 let lastProgress = 0;
+let CancellationCriteria, convert;
+const cancellation = new Int32Array(workerData.cancellation);
 async function initialize(download) {
   if (translator) return;
-  const { pipeline, env } = await import('@huggingface/transformers');
+  const { pipeline, env, StoppingCriteria } = await import('@huggingface/transformers');
+  CancellationCriteria = class extends StoppingCriteria {
+    constructor(generation) { super(); this.generation = generation; }
+    _call(inputIds) { return inputIds.map(() => Atomics.load(cancellation, 0) !== this.generation); }
+  };
   env.cacheDir = workerData.cacheDir;
   env.allowLocalModels = !download;
   env.allowRemoteModels = download;
   env.backends.onnx.logLevel = 'error';
+  // Commit both initialized pieces together, so retrying after a converter
+  // failure cannot leave a truthy model with no text converter.
+  const nextConvert = require('opencc-js').Converter({ from: 'cn', to: 'twp' });
   translator = await pipeline('translation', MODEL, {
     revision: REVISION,
     dtype: 'q8',
@@ -29,22 +38,31 @@ async function initialize(download) {
     }
   });
   env.allowRemoteModels = false;
+  convert = nextConvert;
 }
 parentPort.on('message', async message => {
+  const cancelled = () => Atomics.load(cancellation, 0) !== message.generation;
+  const stopped = () => parentPort.postMessage({ type: 'cancelled', id: message.id });
+  let phase = 'initialize';
   try {
+    if (cancelled()) { stopped(); return; }
     await initialize(message.type === 'prepare');
+    if (cancelled()) { stopped(); return; }
     if (message.type === 'prepare') {
       parentPort.postMessage({ type: 'ready', id: message.id }); return;
     }
-    const OpenCC = require('opencc-js');
-    const convert = OpenCC.Converter({ from: 'cn', to: 'twp' });
+    phase = 'translate';
     const translated = [];
+    const stoppingCriteria = new CancellationCriteria(message.generation);
     for (const part of chunks(message.text)) {
-      const result = await translator(part, { max_new_tokens: 512, num_beams: 1 });
+      if (cancelled()) { stopped(); return; }
+      const result = await translator(part, { max_new_tokens: 512, num_beams: 1, stopping_criteria: [stoppingCriteria] });
+      if (cancelled()) { stopped(); return; }
       translated.push(convert(result[0].translation_text));
     }
     parentPort.postMessage({ type: 'result', id: message.id, text: translated.join('\n') });
   } catch (error) {
-    parentPort.postMessage({ type: 'error', id: message.id, message: String(error.message).slice(0, 800) });
+    if (cancelled()) { stopped(); return; }
+    parentPort.postMessage({ type: 'error', id: message.id, phase, message: String(error.message).slice(0, 800) });
   }
 });
