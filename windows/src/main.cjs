@@ -10,6 +10,7 @@ const { readSettings, writeSettings } = require('./settings.cjs');
 const { Translation } = require('./translation.cjs');
 const { NativeSpeech, validateWave } = require('./speech.cjs');
 const { createMediaPermissions } = require('./media-permissions.cjs');
+const { attachMediaPower } = require('./media-power.cjs');
 const { buildLessonPrompt, IMAGE_GAME_STYLES } = require('./image-lessons.cjs');
 const { prepareLessonImage } = require('./image-files.cjs');
 const { sendImageLesson } = require('./image-chat.cjs');
@@ -20,7 +21,7 @@ const CHAT_URL = 'https://chatgpt.com/';
 const TEST = !app.isPackaged && process.env.MILO_TEST_MODE === '1';
 if (TEST && process.env.MILO_TEST_DATA) app.setPath('userData', process.env.MILO_TEST_DATA);
 app.setName('Milo English');
-let main, chat, settings, translator, speech, dictionaryPromise, awake;
+let main, chat, settings, translator, speech, dictionaryPromise, awake, releaseMediaPower;
 let sequence = 0, currentLookup = null, closing = false;
 let chatLoadFailed = false;
 let lessonImage = null, lessonAbort = null, lessonJob = null, lessonRequest = 0;
@@ -325,7 +326,10 @@ function installIPC() {
     switch (name) {
       case 'new': loadChat(); break;
       case 'reload': loadChat(isLoginURL(chat.webContents.getURL()) ? chat.webContents.getURL() : CHAT_URL); break;
-      case 'browser': external(CHAT_URL); break;
+      case 'browser': {
+        const currentURL = chat.webContents.getURL();
+        external(isChatURL(currentURL) ? currentURL : CHAT_URL); break;
+      }
       case 'focus': settings.focus = !settings.focus; save(); publish({ focus: settings.focus }); await applyMode(); break;
       case 'smaller':
       case 'larger':
@@ -373,6 +377,7 @@ async function createWindow() {
     sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true,
     partition: 'persist:milo-chat', backgroundThrottling: false, spellcheck: false, autoplayPolicy: 'no-user-gesture-required' }
   });
+  releaseMediaPower = attachMediaPower(chat.webContents, powerSaveBlocker);
   main.contentView.addChildView(chat);
   chat.setBounds({ x: 16, y: 96, width: 800, height: 650 });
   const session = chat.webContents.session;
@@ -389,7 +394,7 @@ async function createWindow() {
   });
   session.setPermissionCheckHandler(permissions.check);
   session.setPermissionRequestHandler(permissions.request);
-  session.on('will-download', (_event, item) => { item.cancel(); emit('notice', '請使用上方「瀏覽器」按鈕，在瀏覽器下載附件。'); });
+  session.on('will-download', (_event, item) => { item.cancel(); emit('notice', '請使用上方「瀏覽器語音」按鈕，在瀏覽器下載附件。'); });
   protectNavigation(chat.webContents);
   chat.webContents.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
     if (isMainFrame && !inPlace) { chatLoadFailed = false; clearLookup(); publish({ loading: true, error: '' }); }
@@ -428,6 +433,7 @@ async function createWindow() {
     }
     [settings.width, settings.height] = main.getSize(); save();
     translator.close(); speech.stop(); emit('stop-speech', null);
+    releaseMediaPower?.();
     if (chat && !chat.webContents.isDestroyed()) chat.webContents.close();
     for (const directory of retiredImageDirectories) {
       try { fs.rmSync(directory, { recursive: true, force: true }); } catch {}

@@ -16,6 +16,8 @@
     (document.head || document.documentElement).appendChild(style);
     const interactive = 'button,[role="button"],a,input,textarea,select,[contenteditable="true"]';
     const content = '[data-message-author-role],[data-testid^="conversation-turn"],article,.markdown,.prose';
+    const captions = '[aria-live],[role="status"],[data-testid*="caption" i],[id*="caption" i],[class*="caption" i],[data-testid*="transcript" i],[id*="transcript" i],[class*="transcript" i]';
+    const protectedContent = interactive + ',' + content + ',audio,video,' + captions;
     const named = '[data-testid*="voice-orb" i],[data-testid*="voice-visualizer" i],'
         + '[class*="voice-orb" i],[class*="voiceOrb" i],'
         + '[aria-label="Voice orb" i],[aria-label="Voice visualization" i],'
@@ -23,7 +25,7 @@
     let frame = 0, timer = 0, stopped = false;
     const watched = new Set();
     const marked = new Set();
-    const safe = node => !node.closest(interactive + ',' + content) && !node.querySelector(interactive + ',' + content);
+    const safe = node => !node.closest(protectedContent) && !node.querySelector(protectedContent);
     const endVoice = /(?:end|exit|close|stop)[\s_-]*(?:the[\s_-]*)?(?:voice|conversation)|(?:voice)[\s_-].*(?:end|exit|close|stop)|(?:結束|结束|停止|離開|离开).*(?:語音|语音|對話|对话)/i;
     const orbClass = /(?:^|[\s_-])(?:orb|voice[-_]?orb)(?:$|[\s_-])/i;
     const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
@@ -81,7 +83,11 @@
         // Streaming conversation text does not require another graphics scan.
         if (records.some(record => {
             const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
-            return !target || !target.closest(content);
+            if (!target || target.closest(content)) return false;
+            if (record.type !== 'attributes' && target.closest(captions) &&
+                ![...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 &&
+                    (node.matches('button,[role="button"],audio,video,canvas,svg,img') || node.querySelector('button,[role="button"],audio,video,canvas,svg,img')))) return false;
+            return true;
         })) schedule();
     });
     observer.observe(document.documentElement, {childList: true, subtree: true, attributes: true,

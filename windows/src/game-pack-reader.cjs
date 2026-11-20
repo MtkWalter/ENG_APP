@@ -15,6 +15,30 @@ function installReader(key, timeout, maximum, expectedPrompt, requestId) {
   const baselineIDs = new Set([...baseline].map(stableID).filter(Boolean));
   const pending = new Set();
   const normalized = text => text.replace(/\s+/g, ' ').trim();
+  const expected = normalized(expectedPrompt || '');
+  const noncePattern = /MILO_GAME_REQUEST\s*:\s*([a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12})(?![a-f0-9-])/gi;
+  const nonces = text => [...text.matchAll(noncePattern)];
+  function matchesUser(node) {
+    const raw = node.textContent || '';
+    if (raw.length > maximum + 2048) return false;
+    const identifiers = nonces(raw);
+    if (requestId && identifiers.length) return identifiers.every(match => match[1].toLowerCase() === requestId.toLowerCase());
+    function matchesText(text) {
+      let visible = normalized(text);
+      if (visible === expected) return true;
+      if (!requestId) return false;
+      // ChatGPT can append an expand button or mount only a clipped prefix of
+      // long user messages. A fresh reply nonce supplies the other correlation
+      // check; never click that button or accept a short generic user quote.
+      visible = visible.replace(/\s*(?:顯示較多|顯示更多|顯示完整內容|顯示較少|显示更多|显示较少|展開|展开|Show more|Show less|Read more|View more|Expand|Collapse)\s*$/i, '')
+        .replace(/\s*(?:\.{3,}|…+)\s*$/, '').trim();
+      return visible.length >= 80 && expected.startsWith(visible);
+    }
+    if (matchesText(raw)) return true;
+    // Avoid a layout-dependent innerText read for the usual full or clipped
+    // textContent case. Some paragraph wrappers need its line separators.
+    return matchesText(node.innerText || '');
+  }
   let latest = null, requestUser = null, timer = 0, deadline = 0, complete = false, resolve;
   const promise = new Promise(done => { resolve = done; });
   const state = { promise, stop: () => finish({ error: 'cancelled' }) };
@@ -30,7 +54,8 @@ function installReader(key, timeout, maximum, expectedPrompt, requestId) {
   function register(node) {
     if (baseline.has(node) || baselineIDs.has(stableID(node)) || node.parentElement?.closest(roles) || !node.isConnected) return;
     if (node.getAttribute('data-message-author-role') === 'user') {
-      if (expectedPrompt && (normalized(node.textContent || '') === normalized(expectedPrompt) || normalized(node.innerText || '') === normalized(expectedPrompt))) requestUser = node;
+      if (expectedPrompt && matchesUser(node) && (!requestUser?.isConnected || requestUser === node ||
+          (requestUser.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))) requestUser = node;
       return;
     }
     if (!node.matches(assistant)) return;
@@ -47,17 +72,23 @@ function installReader(key, timeout, maximum, expectedPrompt, requestId) {
     for (const node of pending) discover(node);
     pending.clear();
     if (!latest?.isConnected || !latest.matches(assistant)) return;
-    if (expectedPrompt && (!requestUser?.isConnected || !(requestUser.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING))) return;
+    if (expectedPrompt && (!requestUser?.isConnected || !matchesUser(requestUser) ||
+        !(requestUser.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING))) return;
     // Only the newly mounted assistant reply is read. Streaming changes to old
     // history, user messages and unrelated UI never copy the conversation.
     const text = latest.textContent || '';
     const start = text.indexOf('MILO_GAME_PACK_V1');
     if (start < 0) return;
-    if (requestId && text.slice(0, start).trim() !== 'MILO_GAME_REQUEST:' + requestId) return;
+    if (requestId) {
+      const identifiers = nonces(text);
+      if (identifiers.length !== 1 || identifiers[0][1].toLowerCase() !== requestId.toLowerCase() ||
+          identifiers[0].index >= start) return;
+    }
     const end = text.indexOf('MILO_GAME_PACK_END', start + 17);
     if (end < 0) { if (text.length - start > maximum) finish({ error: 'large' }); return; }
     if (end + 'MILO_GAME_PACK_END'.length - start > maximum) { finish({ error: 'large' }); return; }
     latest.setAttribute('data-milo-game-pack-token', key);
+    if (requestUser) requestUser.setAttribute('data-milo-game-user-token', key);
     finish({ text: text.slice(start, end + 'MILO_GAME_PACK_END'.length) });
   }
   function schedule() { if (!complete && !timer) timer = setTimeout(inspect, 300); }
@@ -94,11 +125,10 @@ function concealPack(key, prompt) {
   if (!assistant?.matches('[data-message-author-role="assistant"]')) return { concealed: false };
   const existing = document.querySelector('[data-milo-game-pack-placeholder="' + key + '"]');
   if (existing) return { concealed: true };
-  // Only inspect the newest user role, once. Never copy or rewrite old turns.
-  const users = document.querySelectorAll('[data-message-author-role="user"]');
-  const user = users[users.length - 1];
-  const normalized = text => text.replace(/\s+/g, ' ').trim();
-  const ownUser = user && (normalized(user.textContent || '') === normalized(prompt) || normalized(user.innerText || '') === normalized(prompt)) &&
+  // Reuse the exact correlated user captured during acceptance. Its long text
+  // may be clipped, or a later user turn may have appeared before concealment.
+  const user = document.querySelector('[data-milo-game-user-token="' + key + '"]');
+  const ownUser = user?.matches('[data-message-author-role="user"]') &&
     !!(user.compareDocumentPosition(assistant) & Node.DOCUMENT_POSITION_FOLLOWING);
   const targets = (ownUser ? [user, assistant] : [assistant]).map(node => ({ node,
     display: node.style.getPropertyValue('display'), priority: node.style.getPropertyPriority('display') }));
@@ -230,7 +260,10 @@ async function createGamePackReader(contents, { signal, timeout = 90000, expecte
       stop: async () => {
         fail(readerError('cancelled')); await cleanup();
         if (guard()) {
-          try { await contents.executeJavaScriptInIsolatedWorld(WORLD, [{ code: `document.querySelector(${JSON.stringify('[data-milo-game-pack-token="' + key + '"]')})?.removeAttribute('data-milo-game-pack-token')` }]); } catch {}
+          try { await contents.executeJavaScriptInIsolatedWorld(WORLD, [{ code: `(() => {
+            document.querySelector(${JSON.stringify('[data-milo-game-pack-token="' + key + '"]')})?.removeAttribute('data-milo-game-pack-token');
+            document.querySelector(${JSON.stringify('[data-milo-game-user-token="' + key + '"]')})?.removeAttribute('data-milo-game-user-token');
+          })()` }]); } catch {}
         }
       }
     };

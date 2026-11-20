@@ -14,13 +14,15 @@
         + '[data-milo-composer-editor="1"]{position:absolute!important;width:1px!important;height:1px!important;min-height:0!important;max-height:1px!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;clip-path:inset(50%)!important}';
     (document.head || document.documentElement).appendChild(style);
     const message = '[data-message-author-role],[data-testid^="conversation-turn"],article,.markdown,.prose';
-    const audio = /dictat|microphone|voice|speech|(?:^|[\s_-])(?:mute|unmute)(?:$|[\s_-])|麥克風|麦克风|語音|语音|聽寫|听写|靜音|静音/i;
+    const audio = /dictat|microphone|voice|speech|\b(?:speak(?:ing)?|pause|resume|play(?:back)?)\b|read[\s_-]*aloud|(?:^|[\s_-])(?:mute|unmute)(?:$|[\s_-])|麥克風|麦克风|語音|语音|聽寫|听写|靜音|静音|朗讀|朗读|暫停|暂停|繼續|继续|播放/i;
     const options = /model|setting|select|menu|option|模型|設定|设置|選擇|选择|選單|菜单/i;
     const special = /^(?:send-button|stop-button|composer-submit-button)$/;
     const composer = '[data-type="unified-composer"],[data-testid="composer"],[data-testid="composer-container"],#composer-background';
     const modelControls = '[data-testid*="model-switcher"],[data-testid="composer-model-selector"],'
         + 'button[aria-label*="model" i],button[aria-label*="模型"],[role="combobox"][aria-label*="model" i],[role="combobox"][aria-label*="模型"]';
     const disclaimer = /^ChatGPT\s*(?:可能會出錯|可能会出错|can make mistakes|可能也會出錯)/i;
+    const captions = '[aria-live],[role="status"],[data-testid*="caption" i],[id*="caption" i],[class*="caption" i],[data-testid*="transcript" i],[id*="transcript" i],[class*="transcript" i]';
+    const media = 'audio,video,' + captions;
     let frame = 0, timer = 0, stopped = false;
     let hidden = new Set(), paths = new Set(), roots = new Set(), editors = new Set();
     const inputModes = new Map();
@@ -35,7 +37,7 @@
     }
     function keepControl(button) {
         const id = button.getAttribute('data-testid') || '';
-        const label = [id, button.getAttribute('aria-label'), button.getAttribute('title')].filter(Boolean).join(' ');
+        const label = [id, button.getAttribute('aria-label'), button.getAttribute('title'), button.textContent.trim()].filter(Boolean).join(' ');
         const transient = /^(?:stop|end|close|停止|結束|结束|關閉|关闭)$/i.test(button.getAttribute('aria-label') || button.getAttribute('title') || button.textContent.trim());
         return !options.test(label) && (audio.test(label) || special.test(id) || transient);
     }
@@ -59,7 +61,7 @@
             if (editor.closest(message)) return;
             const root = composerRoot(editor);
             if (!root || root === document.body || root === document.documentElement || root.closest(message)) return;
-            const keep = Array.from(root.querySelectorAll('button,[role="button"]')).filter(keepControl);
+            const keep = [...Array.from(root.querySelectorAll('button,[role="button"]')).filter(keepControl), ...root.querySelectorAll(media)];
             nextRoots.add(root);nextEditors.add(editor);
             if(!inputModes.has(editor)){inputModes.set(editor,editor.getAttribute('inputmode'));
                 if(editor===document.activeElement||editor.contains(document.activeElement))document.activeElement.blur();
@@ -84,7 +86,7 @@
             if (!node.closest(message) && !node.querySelector(message)) regions.add(node);
         });
         for (const region of regions) region.querySelectorAll('small,div,span,p').forEach(node => {
-            if (node.closest(message) || node.querySelector('button,input,textarea,[contenteditable="true"]')) return;
+            if (node.closest(message + ',' + captions) || node.querySelector('button,input,textarea,[contenteditable="true"]')) return;
             const text = node.textContent.trim();
             if (text.length < 200 && disclaimer.test(text)) nextHidden.add(node);
         });
@@ -102,7 +104,14 @@
     const observer = new MutationObserver(records => {
         if (records.some(record => {
             const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
-            return !target || !target.closest(message);
+            if (!target || target.closest(message)) return false;
+            // Caption words do not change composer controls. Keep their text
+            // visible without scanning the bottom toolbar on every syllable.
+            if (record.type !== 'attributes' && target.closest(captions) &&
+                ![...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 &&
+                    (node.matches('button,[role="button"],audio,video') || node.querySelector('button,[role="button"],audio,video')))) return false;
+            if (record.type === 'characterData') return !!target.closest('button,[role="button"]');
+            return true;
         })) schedule();
     });
     observer.observe(document.documentElement, {childList: true, characterData: true, subtree: true, attributes: true,

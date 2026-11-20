@@ -7,6 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const sharp = require('sharp');
 const { validateWave } = require('../src/speech.cjs');
+const { buildLessonPrompt } = require('../src/image-lessons.cjs');
 const { html, pack } = require('./fixtures/image-learning.cjs');
 const root = path.join(__dirname, '..');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'milo-native-games-'));
@@ -91,11 +92,47 @@ async function capture(name) {
       () => new Response(html, { headers: { 'content-type': 'text/html', 'cache-control': 'no-store' } })), html);
     await page.locator('#reload').click();
     await waitChat('!!window.__fixture');
+    // Reproduce ChatGPT's actual long-message presentation independently of
+    // the shared basic upload fixture. The app still sends the full production
+    // prompt; its mounted user role omits the tail containing the request ID.
+    await chatEvaluate(`(() => {
+      const state=window.__fixture;
+      state.collapsedGamePrompts=0;state.thinkingHeaders=0;state.expandClicks=0;
+      const update=node=>{
+        if(node.nodeType!==1)return;
+        const roles=[...(node.matches('[data-message-author-role]')?[node]:[]),...node.querySelectorAll('[data-message-author-role]')];
+        for(const role of roles){
+          if(role.getAttribute('data-message-author-role')==='user'&&!role.hasAttribute('data-fixture-collapsed')){
+            const original=role.textContent;
+            if(!original.includes('MILO_GAME_PACK_V1'))continue;
+            role.setAttribute('data-fixture-collapsed','1');role.textContent=original.slice(0,140)+'…';
+            const more=document.createElement('button');more.type='button';more.textContent='顯示較多';
+            more.addEventListener('click',()=>{state.expandClicks++});role.appendChild(more);state.collapsedGamePrompts++;
+          }else if(role.getAttribute('data-message-author-role')==='assistant'&&!role.hasAttribute('data-fixture-thinking')){
+            role.setAttribute('data-fixture-thinking','1');
+            const header=document.createElement('div');header.setAttribute('data-fixture-thinking-header','1');
+            header.textContent='思考了 1 秒';role.prepend(header);state.thinkingHeaders++;
+          }
+        }
+      };
+      const observer=new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)update(node)});
+      observer.observe(document.querySelector('main'),{childList:true,subtree:true});state.presentationObserver=observer;
+    })()`);
     await page.locator('#image-tab').click();
     await page.locator('input[name="image-mode"][value="vocabulary"]').check();
     await page.locator('input[name="image-game-style"][value="quest"]').check();
     await page.locator('#image-pick').click();
     await waitImage('sent'); await waitGame('state.status === "ready" && state.style === "quest"');
+    const sentPrompt=await chatEvaluate('window.__fixture.sent[0].text');
+    const sentRequest=sentPrompt.match(/MILO_GAME_REQUEST:([a-f0-9-]{36})/i)?.[1];
+    assert.ok(sentRequest,'the actual outgoing game prompt has a fresh request identifier');
+    const normalized=text=>text.replace(/\s+/g,' ').trim();
+    assert.equal(normalized(sentPrompt),normalized(buildLessonPrompt('vocabulary','kuromi','quest',sentRequest)));
+    assert.equal(await chatEvaluate('window.__fixture.collapsedGamePrompts'),1);
+    assert.equal(await chatEvaluate('window.__fixture.lastUser.textContent.includes("MILO_GAME_REQUEST:")'),false,'the mounted collapsed user message contains no request nonce');
+    assert.equal(await chatEvaluate('window.__fixture.lastUser.textContent.endsWith("…顯示較多")'),true);
+    assert.equal(await chatEvaluate('window.__fixture.lastAssistant.firstElementChild.hasAttribute("data-fixture-thinking-header")'),true);
+    assert.equal(await chatEvaluate('window.__fixture.expandClicks'),0,'reception never expands the website user prompt');
     assert.equal(await page.locator('#game-play').isVisible(), true);
     assert.equal((await snapshot()).task.kind, 'memory');
     assert.equal((await snapshot()).progress.total, 8);
@@ -122,6 +159,8 @@ async function capture(name) {
     await waitChat('getComputedStyle(window.__fixture.lastAssistant).display !== "none"');
     assert.equal(await chatEvaluate('getComputedStyle(window.__fixture.lastUser).display !== "none"'), true);
     assert.equal(await chatEvaluate('window.__fixture.lastAssistant.textContent.includes("MILO_GAME_PACK_V1")'), true, 'expanding material keeps the original document intact');
+    assert.equal(await chatEvaluate('window.__fixture.lastUser.textContent.endsWith("…顯示較多")'),true,'material toggling preserves the website collapsed user representation');
+    assert.equal(await chatEvaluate('window.__fixture.expandClicks'),0);
     await toggleMaterial();
     await waitChat('getComputedStyle(window.__fixture.lastAssistant).display === "none"');
     const phases = new Set(['memory']);
@@ -243,12 +282,17 @@ async function capture(name) {
     assert.equal(await page.locator('#image-start').isEnabled(), true, 'cancelling a pending generated pack unlocks the learning controls');
     await page.locator('#image-clear').click(); await waitImage('idle');
     assert.equal((await snapshot()).status, 'idle');
+    assert.equal(await chatEvaluate('window.__fixture.collapsedGamePrompts'),3,'valid, invalid and cancelled jobs all use the collapsed website presentation');
+    assert.equal(await chatEvaluate('window.__fixture.expandClicks'),0);
+    await chatEvaluate('window.__fixture.presentationObserver.disconnect()');
     assert.deepEqual(errors, []);
     const report = { quest: { completed: quest.progress.completed, mastered: quest.mastered, assisted: quest.assisted,
         phases: [...phases], stars: quest.progress.stars, duplicateRewardsPrevented: true },
       pet: { fed: pet.progress.petEnergy, food: pet.progress.food, noNegativeFood: true, character: pet.character },
       puzzle: { rearrangedLetters: true, revealed: puzzle.puzzle.revealed, total: puzzle.puzzle.total, assisted: puzzle.assisted },
       localRestartsWithoutUpload: true, validatedMaterialCollapsed: true, originalMaterialToggleWorks: true,
+      collapsedUserPromptReady: true, mountedUserNonceAbsent: true, assistantThinkingHeaderAccepted: true,
+      productionPromptPreserved: true, websiteExpandButtonUntouched: true,
       rendering: { hiddenGridRebuilds, hintGridRebuilds, progressGridRebuilds },
       nativeSidebarPreserved: true, lateDictionaryResultKeepsGameVisible: true, invalidPackRejected: true, waitingCancellationUnlocksControls: true, speech,
       limitation: 'Actual packaged-source Electron UI/IPC/gameplay with synthetic ChatGPT image教材; no real image understanding or pronunciation assessment verified.' };

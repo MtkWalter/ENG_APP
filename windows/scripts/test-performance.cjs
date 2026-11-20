@@ -108,7 +108,33 @@ async function run(mode) {
           await new Promise(requestAnimationFrame);
         }
         const formattedStreamingLocal=window.__getMiloMetrics().broadQueries===0;
-        behavior={manualScroll,followResumed,selectionStable,footerClearance,newMessageWide,newMessageFollow,smoothScrollFollow,smoothStylePreserved,stagedMessageWide,stagedMessageFollow,formattedStreamingLocal};
+        // Voice captions can stream outside message-author elements. They must
+        // not trigger another full-history search or hide playback controls.
+        const form=document.querySelector('footer form');
+        const controls=document.createElement('div');
+        controls.innerHTML='<button id="stop-speaking" aria-label="Stop speaking">Stop speaking</button><button id="pause-speaking" aria-label="Pause">Pause</button><button id="resume-speaking">Resume</button><button id="read-aloud" aria-label="Read aloud">Read aloud</button><div id="live-caption" aria-live="polite"><span>Listen to this sentence.</span></div><div id="media-orb" data-testid="voice-orb"><audio id="voice-output"></audio><canvas width="80" height="80"></canvas></div>';
+        form.appendChild(controls);await pause();
+        const visible=node=>node.getClientRects().length>0&&getComputedStyle(node).visibility!=='hidden';
+        const voiceControlsVisible=['stop-speaking','pause-speaking','resume-speaking','read-aloud'].every(id=>visible(document.getElementById(id)));
+        const voiceCaptionsVisible=visible(document.getElementById('live-caption'));
+        const mediaContainerVisible=visible(document.getElementById('media-orb'));
+        const context=new AudioContext();const oscillator=context.createOscillator();const destination=context.createMediaStreamDestination();
+        const gain=context.createGain();gain.gain.value=0.02;oscillator.connect(gain).connect(destination);oscillator.start();await context.resume();
+        const audio=document.getElementById('voice-output');audio.srcObject=destination.stream;await audio.play();
+        let pauses=0;audio.addEventListener('pause',()=>pauses++);
+        const before=context.currentTime;
+        window.__resetMiloMetrics();
+        for(let i=0;i<${updates};i++){
+          const caption=document.getElementById('live-caption');const span=document.createElement('span');span.textContent='Streaming spoken sentence '+i;caption.replaceChildren(span);
+          await new Promise(resolve=>setTimeout(resolve,16));
+        }
+        await pause();
+        const captionMetrics=window.__getMiloMetrics();
+        const voiceCaptionsLocal=captionMetrics.broadQueries===0;
+        const voicePlaybackContinued=!audio.paused&&context.state==='running'&&context.currentTime>before+1&&pauses===0;
+        oscillator.stop();audio.pause();destination.stream.getTracks().forEach(track=>track.stop());await context.close();
+        behavior={manualScroll,followResumed,selectionStable,footerClearance,newMessageWide,newMessageFollow,smoothScrollFollow,smoothStylePreserved,stagedMessageWide,stagedMessageFollow,formattedStreamingLocal,voiceControlsVisible,voiceCaptionsVisible,mediaContainerVisible,voiceCaptionsLocal,voicePlaybackContinued};
+        metrics.voiceCaptionStreaming=captionMetrics;
       }
       return {...metrics,bottomGap,behavior};
     })()`);

@@ -73,6 +73,14 @@ async function clickChat(selector) {
     }, fs.readFileSync(path.join(root, 'test/chat-fixture.html'), 'utf8'));
     await page.locator('#reload').click();
     await waitChat(`document.querySelector('#prompt-textarea')?.getAttribute('data-milo-composer-editor') === '1'`);
+    await app.evaluate(({ shell }) => {
+      globalThis.__miloExternalURLs = [];
+      shell.openExternal = async url => { globalThis.__miloExternalURLs.push(url); };
+    });
+    await chatEvaluate(`history.replaceState({}, '', '/c/milo-current-lesson')`);
+    await page.locator('#browser').click();
+    assert.deepEqual(await app.evaluate(() => globalThis.__miloExternalURLs), ['https://chatgpt.com/c/milo-current-lesson'], 'Browser voice opens this conversation');
+    await chatEvaluate(`history.replaceState({}, '', '/')`);
     assert.equal(await chatEvaluate(`document.querySelector('#voice').getClientRects().length > 0`), true);
     assert.equal(await chatEvaluate(`document.querySelector('#attach').getClientRects().length > 0`), false);
     assert.equal(await chatEvaluate(`typeof require`), 'undefined');

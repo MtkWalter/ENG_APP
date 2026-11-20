@@ -4,6 +4,7 @@
   const key = '__miloConversationVisibleV1';
   if (window[key]) { window[key].update(); return 'installed'; }
   const message = '[data-message-author-role],[data-testid^="conversation-turn"]';
+  const structure = message + ',[data-milo-composer-root="1"],footer,#thread-bottom-container,[data-testid="composer-container"]';
   let frame = 0, stopped = false, structureDirty = true, layoutDirty = true;
   let state = null, footer = null, last = null, contentBox = null;
   let following = true, holding = false, intentUntil = 0, previousURL = location.href;
@@ -75,12 +76,15 @@
         if (record.attributeName === 'class') {
           if (target === state?.node || target.matches('main')) structureDirty = true;
         } else if (record.attributeName === 'data-milo-composer-root' || record.attributeName === 'data-message-author-role' || target.matches(message)) structureDirty = true;
-      } else if (!target.closest?.('[data-message-author-role]') && [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1)) {
+      } else if (!target.closest?.('[data-message-author-role]') &&
+          [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 &&
+            (node.matches(structure) || node.querySelector(structure)))) {
         // React may mount an empty turn first and add the actual reply later.
         // Once inside an author-role element, ResizeObserver handles streaming.
         structureDirty = true;
       }
     }
+    if ((last && !last.isConnected) || (footer && !footer.isConnected)) structureDirty = true;
     if (structureDirty) schedule();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true,
