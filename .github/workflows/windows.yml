@@ -39,9 +39,8 @@ jobs:
       - run: npm test
       - run: npm run test:desktop
       - run: npm run test:images
+      - run: npm run test:no-games
       - run: npm run test:upload
-      - run: npm run test:ocr
-      - run: npm run test:games
       - run: npm run test:performance
       - run: npm run test:media
       - run: npm run test:speech

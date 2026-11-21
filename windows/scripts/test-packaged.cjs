@@ -18,10 +18,9 @@ child.on('exit', code => {
     const result = JSON.parse(fs.readFileSync(report, 'utf8'));
     assert.equal(result.ok, true); assert.equal(result.platform, 'win32'); assert.equal(result.arch, 'x64');
     assert.equal(result.imageLearning.normalized, true);
-    assert.deepEqual(result.imageLearning.characters, ['kuromi', 'cinnamoroll']);
-    assert.deepEqual(result.nativeGameStyles, ['puzzle', 'pet', 'quest']);
-    assert.equal(result.localGames.localOCR, true); assert.equal(result.localGames.builtinTopics, 5);
-    assert.equal(result.localGames.noAIRequired, true); assert.ok(result.localGames.imageWords.length >= 3);
+    assert.deepEqual(result.imageLearning.modes, ['conversation', 'grammar', 'quiz']);
+    assert.equal(result.nativeGameStyles, undefined);
+    assert.equal(result.localGames, undefined);
     console.log('Packaged Windows application self-test passed:', result);
   } catch (error) { console.error(error); process.exitCode = 1; }
 });

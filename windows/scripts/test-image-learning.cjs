@@ -82,20 +82,16 @@ const normalizedText = text => text.replace(/\s+/g, ' ').trim();
     assert.equal(await chatEvaluate('typeof require'), 'undefined');
     assert.equal(await chatEvaluate('document.getElementById("native-sidebar").getBoundingClientRect().width'), 150);
     await page.locator('#image-tab').click();
-    await page.locator('#ai-assistant').evaluate(node => { node.open = true; });
 
-    const modes = [
-      ['conversation', 'kuromi'], ['grammar', 'kuromi'], ['quiz', 'kuromi']
-    ];
-    for (const [index, [mode, character]] of modes.entries()) {
-      console.log('Checking image lesson:', mode, character);
+    const modes = ['conversation', 'grammar', 'quiz'];
+    for (const [index, mode] of modes.entries()) {
+      console.log('Checking image lesson:', mode);
       await page.locator(`input[name="image-mode"][value="${mode}"]`).check();
-      if (mode === 'vocabulary') await page.locator(`input[name="image-character"][value="${character}"]`).check();
       await resetLessonState(page);
       await page.locator(index === 0 ? '#image-pick' : '#image-start').click();
       await waitLesson(page, 'sent');
       const sent = await chatEvaluate(`window.__fixture.sent[${index}]`);
-      assert.equal(normalizedText(sent.text), normalizedText(buildLessonPrompt(mode, character)), 'selected lesson reaches the real editor intact');
+      assert.equal(normalizedText(sent.text), normalizedText(buildLessonPrompt(mode)), 'selected lesson reaches the real editor intact');
       assert.equal(sent.trusted, true, 'send is an actual trusted pointer click');
       assert.equal(sent.file.trusted, true, 'CDP upload produces a trusted change event');
       assert.equal(sent.file.name, 'lesson.jpg'); assert.equal(sent.file.type, 'image/jpeg');
@@ -103,7 +99,7 @@ const normalizedText = text => text.replace(/\s+/g, ' ').trim();
       assert.ok(sent.file.size > 0 && sent.file.size <= 10 * 1024 * 1024);
       await waitChat('!window.__miloCompactComposerV1');
       assert.equal(await chatEvaluate('document.querySelector("#prompt-textarea").getAttribute("data-milo-composer-editor")'), null);
-      assert.equal(await chatEvaluate('document.querySelector("#prompt-textarea").getClientRects().length > 0'), true, 'composer remains available for typed spelling and quiz answers');
+      assert.equal(await chatEvaluate('document.querySelector("#prompt-textarea").getClientRects().length > 0'), true, 'composer remains available for typed lesson answers');
       assert.equal(await page.locator('#focus').getAttribute('aria-pressed'), 'false');
       assert.equal(await chatEvaluate('document.getElementById("native-sidebar").getClientRects().length > 0'), true);
     }
@@ -137,7 +133,7 @@ const normalizedText = text => text.replace(/\s+/g, ' ').trim();
     await page.locator('#image-start').click();
     await waitLesson(page, 'sent');
     const fallback = await chatEvaluate('window.__fixture.sent[3]');
-    assert.equal(normalizedText(fallback.text), normalizedText(buildLessonPrompt('quiz', 'kuromi')));
+    assert.equal(normalizedText(fallback.text), normalizedText(buildLessonPrompt('quiz')));
     assert.equal(fallback.trusted, true); assert.equal(fallback.file.trusted, true);
     assert.equal(fallback.file.name, 'lesson.jpg');
     assert.deepEqual(await chatEvaluate('window.__fixture.chooserClicks'), [true]);
@@ -148,14 +144,14 @@ const normalizedText = text => text.replace(/\s+/g, ' ').trim();
 
     await chatEvaluate('document.getElementById("prompt-textarea").innerText="Keep this existing draft."');
     await resetLessonState(page);
-    await page.evaluate(() => window.milo.startImageLesson('grammar', 'kuromi'));
+    await page.evaluate(() => window.milo.startImageLesson('grammar'));
     await waitLesson(page, 'error');
     assert.equal(await chatEvaluate('document.getElementById("prompt-textarea").innerText'), 'Keep this existing draft.');
     assert.equal(await chatEvaluate('window.__fixture.sent.length'), completed, 'a previous draft is preserved without another send');
     assert.equal(await chatEvaluate('window.__fixture.changes.length'), completed);
     await chatEvaluate(`(() => {window.__fixture.clearDraft();const attachment=document.createElement('div');attachment.id='user-file-preview';attachment.setAttribute('data-testid','file-preview');attachment.textContent='existing-notes.pdf';document.querySelector('form').appendChild(attachment)})()`);
     await resetLessonState(page);
-    await page.evaluate(() => window.milo.startImageLesson('grammar', 'kuromi'));
+    await page.evaluate(() => window.milo.startImageLesson('grammar'));
     await waitLesson(page, 'error');
     assert.equal(await chatEvaluate('document.getElementById("user-file-preview").textContent'), 'existing-notes.pdf');
     assert.equal(await chatEvaluate('window.__fixture.sent.length'), completed, 'existing non-image attachments are also preserved');
@@ -189,10 +185,10 @@ const normalizedText = text => text.replace(/\s+/g, ' ').trim();
     assert.equal(fs.existsSync(path.dirname(preparedPath)), false, 'clearing the image removes its normalized temporary file');
     assert.equal(await page.locator('#image-preview').getAttribute('src'), null);
     assert.deepEqual(fs.readFileSync(selectedImage), original);
-    const invalid = await page.evaluate(() => window.milo.pickImage('unknown-mode', 'kuromi'));
+    const invalid = await page.evaluate(() => window.milo.pickImage('unknown-mode'));
     assert.match(invalid.error, /有效/); assert.equal(await chatEvaluate('window.__fixture.sent.length'), completed);
     assert.deepEqual(errors, []);
-    const report = { modes: modes.map(([mode, character]) => ({ mode, character })), sent: completed, trustedUploads: 6,
+    const report = { modes, sent: completed, trustedUploads: 6,
       mainFrameFileChooserFallback: true, repeatedSameImage: true, composerAvailableForAnswers: true, nativeSidebarVisible: true, localPathPrivate: true,
       draftPreserved: true, existingAttachmentPreserved: true, concurrentOtherFilePreventsSend: true,
       cancellationPreventsSend: true, temporaryImageRemoved: true, originalPreserved: true,

@@ -1,13 +1,11 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { IMAGE_LESSON_MODES, IMAGE_GAME_CHARACTERS, IMAGE_GAME_STYLES, validateLessonOptions, buildLessonPrompt } = require('../src/image-lessons.cjs');
-test('local game mode is valid but cannot build or send an AI game-generation prompt', () => {
-  for (const { id: character } of IMAGE_GAME_CHARACTERS) for (const { id: style } of IMAGE_GAME_STYLES) {
-    validateLessonOptions('vocabulary', character, style);
-    assert.throws(() => buildLessonPrompt('vocabulary', character, style), /do not use AI prompts/);
-  }
-  assert.deepEqual(IMAGE_LESSON_MODES.map(item => item.id), ['conversation', 'grammar', 'quiz', 'vocabulary']);
+const { IMAGE_LESSON_MODES, validateLessonOptions, buildLessonPrompt } = require('../src/image-lessons.cjs');
+test('only conversation, grammar and quiz modes remain available', () => {
+  assert.deepEqual(IMAGE_LESSON_MODES.map(item => item.id), ['conversation', 'grammar', 'quiz']);
+  assert.throws(() => validateLessonOptions('vocabulary'), RangeError);
+  assert.throws(() => buildLessonPrompt('vocabulary'), RangeError);
 });
 test('optional AI teachers retain image evidence, one-task turns and no pronunciation scoring claims', () => {
   for (const mode of ['conversation', 'grammar', 'quiz']) {
@@ -23,10 +21,8 @@ test('optional AI teachers retain image evidence, one-task turns and no pronunci
   assert.match(buildLessonPrompt('grammar'), /一次只教一個文法/);
   assert.match(buildLessonPrompt('quiz'), /直接開始第 1 題/);
 });
-test('invalid or inherited mode, character and style IDs cannot enter any lesson', () => {
+test('invalid or inherited mode IDs cannot enter any lesson', () => {
   for (const value of [null, {}, [], 1, '', 'constructor', '__proto__', 'unknown']) {
     assert.throws(() => validateLessonOptions(value), RangeError);
-    assert.throws(() => validateLessonOptions('vocabulary', value), RangeError);
-    assert.throws(() => validateLessonOptions('vocabulary', 'kuromi', value), RangeError);
   }
 });

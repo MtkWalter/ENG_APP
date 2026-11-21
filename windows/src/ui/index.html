@@ -14,7 +14,7 @@
       <button id="new" class="primary" title="新對話 Ctrl+N"><span aria-hidden="true">＋</span> 新對話</button>
       <div class="font-control"><button id="smaller" aria-label="縮小字體">A−</button><span id="zoom">100%</span><button id="larger" aria-label="放大字體">A＋</button></div>
       <button id="focus" class="toggle" aria-pressed="true"><i></i>語音專注</button>
-      <button id="image-learning" class="subtle" title="用圖片開始英文練習">遊戲與圖片</button>
+      <button id="image-learning" class="subtle" title="用圖片開始英文練習">圖片學習</button>
       <button id="reload" class="icon-button" aria-label="重新載入" title="重新載入 Ctrl+R">↻</button>
       <button id="browser" class="subtle" title="在預設瀏覽器開啟目前對話，使用瀏覽器語音">瀏覽器語音 ↗</button>
     </div>
@@ -29,7 +29,7 @@
     <aside aria-label="英文學習工具">
       <div class="learning-tabs" role="tablist" aria-label="學習工具">
         <button id="dictionary-tab" type="button" role="tab" aria-selected="true" aria-controls="dictionary-panel">隨手查字</button>
-        <button id="image-tab" type="button" role="tab" aria-selected="false" aria-controls="image-panel" tabindex="-1">遊戲與圖片</button>
+        <button id="image-tab" type="button" role="tab" aria-selected="false" aria-controls="image-panel" tabindex="-1">圖片學習</button>
       </div>
       <div id="dictionary-panel" class="learning-panel" role="tabpanel" aria-labelledby="dictionary-tab">
       <div class="aside-heading"><div><span class="eyebrow">A LITTLE EVERY DAY</span><h1>隨手查，慢慢學。</h1></div><span class="book-icon" aria-hidden="true">Aa</span></div>
@@ -55,67 +55,14 @@
       </div>
       </div>
       <section id="image-panel" class="learning-panel" role="tabpanel" aria-labelledby="image-tab" hidden>
-        <div class="image-heading"><span class="eyebrow">PLAY, LEARN, EXPLORE</span><h1 id="learning-title">遊戲準備好了！</h1><p id="learning-intro">由 Milo 出題、計分與闖關。直接玩內建主題，或載入自己的英文教材。</p></div>
-        <section id="game-library" class="game-library" aria-label="本機遊戲教材">
-          <label for="game-topic">選一個內建主題</label>
-          <div class="game-library-row"><select id="game-topic"><option value="breakfast">早餐店任務</option><option value="park">公園尋寶</option><option value="classroom">教室尋寶</option><option value="animals">動物好朋友</option><option value="travel">旅行小探險</option></select><button id="game-topic-start" class="speech-button" type="button">開始玩</button></div>
-        </section>
-        <details id="game-settings" class="learning-options"><summary id="game-settings-label">夥伴與玩法：庫洛米 · 任務闖關</summary>
-        <fieldset id="image-characters" class="image-characters" hidden>
-          <legend>選你的闖關夥伴</legend>
-          <div class="character-stage"><img id="character-preview" src="../../assets/game-kuromi.png" width="100" height="100" alt="庫洛米學習夥伴"><p><strong id="character-name">庫洛米陪你闖關</strong><span>唸出來 → 拼出來 → 拿星星</span></p></div>
-          <div class="character-options">
-            <label><input type="radio" name="image-character" value="kuromi" checked><span>庫洛米</span></label>
-            <label><input type="radio" name="image-character" value="cinnamoroll"><span>大耳狗</span></label>
-          </div>
-        </fieldset>
-        <fieldset id="image-game-styles" class="game-style-picker" hidden>
-          <legend>今天怎麼玩？</legend>
-          <label><input type="radio" name="image-game-style" value="puzzle"><span><strong>益智拼圖</strong><small>配對、拼字、組句</small></span></label>
-          <label><input type="radio" name="image-game-style" value="pet"><span><strong>寵物點心屋</strong><small>練英文，賺點心</small></span></label>
-          <label><input type="radio" name="image-game-style" value="quest" checked><span><strong>任務闖關</strong><small>一步一步拿星星</small></span></label>
-        </fieldset>
-        </details>
-        <section id="image-game" class="game-board" aria-label="Milo 英文遊戲" hidden>
-          <div class="game-heading"><span class="eyebrow">YOUR ENGLISH ADVENTURE</span><h2 id="game-title">英文任務闖關</h2></div>
-          <p id="game-material" class="game-material"></p>
-          <p id="game-status" class="game-status" role="status" aria-live="polite"></p>
-          <p id="game-error" class="error" role="alert" hidden></p>
-          <div id="game-play" hidden>
-            <div class="game-rewards" aria-label="本次遊戲獎勵"><span>★ <strong id="game-stars">0</strong></span><span>點心 <strong id="game-food">0</strong></span><span>已餵點心 <strong id="game-energy">0</strong></span></div>
-            <p class="game-pronunciation-note">獨立答對得星星；用提示或重試也能完成任務。</p>
-            <div class="game-progress-row"><progress id="game-progress" value="0" max="1" aria-label="關卡進度"></progress><span id="game-progress-label">0 / 0</span></div>
-            <div id="game-stages" class="game-stages" aria-label="練習類型"><span data-kind="memory">記憶</span><span aria-hidden="true">→</span><span data-kind="spelling">拼字</span><span aria-hidden="true">→</span><span data-kind="sentence">句型</span></div>
-            <div id="game-puzzle" class="game-puzzle" hidden><div id="game-puzzle-grid" class="game-puzzle-grid" aria-label="完成關卡，逐步揭開拼圖"></div><p id="game-puzzle-label"></p></div>
-            <div id="game-pet" class="game-pet"><img id="game-pet-image" src="../../assets/game-kuromi.png" width="76" height="76" alt="庫洛米學習夥伴"><div><strong id="game-pet-name">庫洛米</strong><p id="game-pet-note">一起完成一個小挑戰。</p><button id="game-feed" class="text-button" type="button" disabled>餵一份點心</button></div></div>
-            <div id="game-question" class="game-question">
-              <span id="game-kind" class="eyebrow">WORD CHALLENGE</span>
-              <h3 id="game-prompt"></h3><p id="game-word" hidden></p><p id="game-meaning" hidden></p><p id="game-phonetic" hidden></p>
-              <div class="game-help"><button id="game-speak" class="speech-button" type="button">▷ 聽發音</button><button id="game-stop" class="text-button" type="button">停止</button><button id="game-hint" class="text-button" type="button">看提示</button></div>
-              <p class="game-pronunciation-note">先聽讀，再開口跟讀；這裡不評判實際發音。</p>
-              <p id="game-speech-note" class="muted" role="status" hidden></p><p id="game-hint-text" class="game-hint-text" hidden></p>
-              <div id="game-choices" class="game-choices" hidden></div>
-              <div id="game-letters" class="game-letters" aria-label="點字母，拼出英文單字" hidden></div>
-              <form id="game-answer-form"><label id="game-answer-label" class="sr-only" for="game-answer">你的英文答案</label><input id="game-answer" type="text" maxlength="200" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="在這裡輸入英文答案"><button id="game-clear-answer" class="text-button" type="button" hidden>清除字母重選</button><button id="game-submit" class="primary" type="submit">送出答案</button></form>
-              <p id="game-feedback" class="game-feedback" role="status" aria-live="polite" hidden></p>
-              <p id="game-explanation" class="game-hint-text" hidden></p><p id="game-example" class="game-hint-text" hidden></p>
-              <button id="game-next" class="primary game-next" type="button" hidden>下一關 →</button>
-            </div>
-            <button id="game-restart" class="download-button" type="button">套用夥伴／玩法，重新挑戰</button>
-          </div>
-        </section>
-        <details id="ai-assistant" class="learning-options"><summary>AI 輔助教學（選用）</summary>
+        <div class="image-heading"><span class="eyebrow">LEARN FROM WHAT YOU SEE</span><h1>一張圖，開始練英文。</h1><p>選一種模式，載入圖片後，ChatGPT 就會依照圖片帶你練習。</p></div>
         <fieldset id="image-modes" class="lesson-modes">
           <legend>這次想練什麼？</legend>
-          <label class="lesson-mode"><input type="radio" name="image-mode" value="vocabulary" checked><span><strong>學習遊戲</strong><small>直接玩，不必等 AI</small></span></label>
-          <label class="lesson-mode"><input type="radio" name="image-mode" value="conversation"><span><strong>AI 看圖對話</strong><small>選用：開口聊圖片</small></span></label>
-          <label class="lesson-mode"><input type="radio" name="image-mode" value="grammar"><span><strong>AI 文法句型</strong><small>用圖片練習造句</small></span></label>
-          <label class="lesson-mode"><input type="radio" name="image-mode" value="quiz"><span><strong>AI 看圖測驗</strong><small>答一題，再看解答</small></span></label>
+          <label class="lesson-mode"><input type="radio" name="image-mode" value="conversation" checked><span><strong>看圖對話</strong><small>一句一句開口聊</small></span></label>
+          <label class="lesson-mode"><input type="radio" name="image-mode" value="grammar"><span><strong>文法句型</strong><small>用圖片練習造句</small></span></label>
+          <label class="lesson-mode"><input type="radio" name="image-mode" value="quiz"><span><strong>看圖測驗</strong><small>答一題，再看解答</small></span></label>
         </fieldset>
-        <p id="image-mode-description" class="lesson-description">記憶、拼字、句型，直接在這裡玩；不需 ChatGPT 帳號或等待 AI 出題。</p>
-        </details>
-        <div id="game-import" class="game-import">
-        <h2 id="image-import-title">用自己的圖片或文字練習</h2>
+        <p id="image-mode-description" class="lesson-description">ChatGPT 會先描述圖片，再一次問你一個簡單問題，陪你用英文回答。</p>
         <div id="image-preview-card" class="image-preview-card" hidden>
           <img id="image-preview" alt="這次英文練習使用的圖片">
           <div><strong id="image-name"></strong><span id="image-metadata"></span></div>
@@ -129,13 +76,6 @@
           <p id="image-status" role="status" aria-live="polite">準備好圖片後，按上方按鈕開始。</p>
           <p id="image-error" class="error" role="alert" hidden></p>
           <button id="image-cancel" class="text-button" type="button" hidden>取消本次操作</button>
-        </div>
-        <section id="game-text-section" class="game-text-section">
-          <label for="game-text">辨識文字／自己的英文教材</label>
-          <textarea id="game-text" maxlength="12000" rows="5" spellcheck="false" placeholder="可載入英文圖片自動辨識，或貼上至少含 3 個內容單字的英文。"></textarea>
-          <button id="game-text-start" class="download-button" type="button">用這份文字開始遊戲</button>
-          <p id="game-text-error" class="error" role="alert" hidden></p>
-        </section>
         </div>
         <p id="image-learning-note" class="image-learning-note">圖片會傳到目前登入的 ChatGPT 對話，需要網路及可使用圖片的帳號。對話、文法和測驗可在左側繼續回答；要練口說，可開啟 ChatGPT 語音。</p>
       </section>

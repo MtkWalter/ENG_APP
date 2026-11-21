@@ -3,19 +3,7 @@
 const IMAGE_LESSON_MODES = Object.freeze([
   Object.freeze({ id: 'conversation', label: '趣味英文對話', description: '把圖片變成情境對話，直接帶你開口練習。' }),
   Object.freeze({ id: 'grammar', label: '句型與文法', description: '從圖片挑選實用句型，講解後立即練一句。' }),
-  Object.freeze({ id: 'quiz', label: '看圖小測驗', description: '一次一題，回答後再揭曉與提示。' }),
-  Object.freeze({ id: 'vocabulary', label: '單字與句型學習遊戲', description: '用解謎、餵食與闖關，練記憶、拼字及句型。' })
-]);
-
-const IMAGE_GAME_CHARACTERS = Object.freeze([
-  Object.freeze({ id: 'kuromi', label: '庫洛米', description: '俏皮小惡作劇，陪你闖關收集星星。' }),
-  Object.freeze({ id: 'cinnamoroll', label: '大耳狗', description: '柔軟雲朵般的鼓勵，慢慢練好每個字。' })
-]);
-
-const IMAGE_GAME_STYLES = Object.freeze([
-  Object.freeze({ id: 'puzzle', label: '單字解謎', description: '記住意思、重排字母，再用句型找出線索。' }),
-  Object.freeze({ id: 'pet', label: '寵物點心屋', description: '完成練習賺點心，親手餵你的陪學夥伴。' }),
-  Object.freeze({ id: 'quest', label: '英文闖關', description: '依序通過單字記憶、拼字與句型三個關卡。' })
+  Object.freeze({ id: 'quiz', label: '看圖小測驗', description: '一次一題，回答後再揭曉與提示。' })
 ]);
 
 const SHARED_GUIDANCE = `請擔任我的看圖英文老師，依照本次選定模式，在讀取隨附圖片後立即開始教學。
@@ -51,14 +39,11 @@ const MODE_GUIDANCE = Object.freeze({
 - 五題算一輪，僅根據我的實際作答計分，簡短回顧一個重點，再主動開始難度合適的新一輪。不要一次發五題或猜測我已經答對。`
 });
 
-function validateLessonOptions(mode, characterId = 'kuromi', style = 'quest') {
+function validateLessonOptions(mode) {
   if (!IMAGE_LESSON_MODES.some(item => item.id === mode)) throw new RangeError('Unknown image lesson mode');
-  if (!IMAGE_GAME_CHARACTERS.some(item => item.id === characterId)) throw new RangeError('Unknown image game character');
-  if (!IMAGE_GAME_STYLES.some(item => item.id === style)) throw new RangeError('Unknown image game style');
 }
-function buildLessonPrompt(mode, characterId = 'kuromi', style = 'quest') {
-  validateLessonOptions(mode, characterId, style);
-  if (mode === 'vocabulary') throw new RangeError('Local games do not use AI prompts');
-  return `${SHARED_GUIDANCE}\n${MODE_GUIDANCE[mode]}`;
+function buildLessonPrompt(mode) {
+  validateLessonOptions(mode);
+  return SHARED_GUIDANCE + '\n' + MODE_GUIDANCE[mode];
 }
-module.exports = { IMAGE_LESSON_MODES, IMAGE_GAME_CHARACTERS, IMAGE_GAME_STYLES, validateLessonOptions, buildLessonPrompt };
+module.exports = { IMAGE_LESSON_MODES, validateLessonOptions, buildLessonPrompt };

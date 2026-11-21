@@ -11,6 +11,3 @@ Runtime dependencies include Electron (MIT, plus Chromium and Node notices shipp
 Microsoft Visual C++ x64 runtime DLLs are bundled as app-local dependencies for the native inference libraries. Copyright Microsoft Corporation. [Runtime redistribution terms](https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/). The build reads these redistributable files from the Windows build machine's runtime installation or the explicit `MILO_CRT_DIR` directory.
 
 ChatGPT and OpenAI are trademarks of OpenAI. Milo is an independent client interface and does not imply affiliation or endorsement.
-
-
-Local English text recognition uses [Tesseract.js](https://github.com/naptha/tesseract.js) and tesseract.js-core 7.0.0 (Apache-2.0), with English trained data distributed by @tesseract.js-data/eng 1.0.0 (MIT package; upstream Tesseract trained data Apache-2.0). The engine, WebAssembly files, English language data and dependency license files are bundled, and local game OCR does not download a model or send an image to an AI service.

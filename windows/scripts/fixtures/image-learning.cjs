@@ -20,7 +20,7 @@ button{min-height:36px;padding:8px}#previews{display:flex;gap:8px}#previews img{
   const file=document.getElementById('lesson-file'),editor=document.getElementById('prompt-textarea');
   const previews=document.getElementById('previews'),progress=document.getElementById('upload-progress'),send=document.getElementById('fixture-send');
   let generation=0,url=null;
-  const state=window.__fixture={changes:[],foreignChanges:[],sent:[],uploadDelay:80,uploadReady:false,gamePackMode:'valid',packDelay:40,packReplies:0};
+  const state=window.__fixture={changes:[],foreignChanges:[],sent:[],uploadDelay:80,uploadReady:false};
   const update=()=>{send.disabled=!state.uploadReady||!editor.innerText.trim()};
   editor.addEventListener('input',update);
   state.clearDraft=()=>{generation++;editor.replaceChildren();previews.replaceChildren();progress.hidden=true;state.uploadReady=false;file.value='';if(url){URL.revokeObjectURL(url);url=null}update()};

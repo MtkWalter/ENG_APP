@@ -175,7 +175,7 @@ async function runCase(config) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     assert.ok(Math.abs(zoom - config.zoom) < 0.001);
-    await page.evaluate(() => { window.__compatDone = false; void window.milo.pickImage('quiz', 'kuromi').then(() => { window.__compatDone = true; }); });
+    await page.evaluate(() => { window.__compatDone = false; void window.milo.pickImage('quiz').then(() => { window.__compatDone = true; }); });
     const deadline = Date.now() + 5500;
     let observed;
     while (Date.now() < deadline) {
