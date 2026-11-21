@@ -1,17 +1,4 @@
 'use strict';
-const pack = {
-  words: [
-    { word: 'garden', meaning: '花園', phonetic: '/ˈɡɑrdən/', hint: '可以欣賞植物的戶外空間', example: 'This is a garden.' },
-    { word: 'flower', meaning: '花朵', hint: '植物上色彩鮮豔的部分', example: 'A flower grows here.' },
-    { word: 'bench', meaning: '長椅', hint: '能讓幾個人一起坐的家具', example: 'The bench is outside.' }
-  ],
-  patterns: [
-    { prompt: 'One flower ____ here.', answer: 'is', choices: ['is', 'are', 'am'], explanation: '單數主詞用 is。' },
-    { prompt: 'Two benches ____ outside.', answer: 'are', choices: ['are', 'is', 'am'], explanation: '複數主詞用 are。' }
-  ]
-};
-const markedPack = 'MILO_GAME_PACK_V1\n' + JSON.stringify(pack) + '\nMILO_GAME_PACK_END';
-const invalidMarkedPack = 'MILO_GAME_PACK_V1\n{"words":[],"patterns":[]}\nMILO_GAME_PACK_END';
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;overflow:hidden;font:16px/1.5 Arial}
 nav{position:fixed;left:0;top:0;bottom:0;width:150px;background:#eee;padding:12px}
@@ -55,25 +42,10 @@ button{min-height:36px;padding:8px}#previews{display:flex;gap:8px}#previews img{
     state.foreignChanges.push({trusted:event.isTrusted,name:selected.name,type:selected.type});
     const preview=document.createElement('div');preview.id='concurrent-user-file';preview.setAttribute('data-testid','file-preview');preview.textContent=selected.name;document.querySelector('form').appendChild(preview);
   });
-  async function produceGamePack(prompt) {
-    if(state.gamePackMode==='none')return;
-    const nonce=prompt.match(/MILO_GAME_REQUEST:([a-f0-9-]{36})/i);
-    const prefix=nonce?'MILO_GAME_REQUEST:'+nonce[1]+${JSON.stringify('\n')}:'';
-    const text=prefix+(state.gamePackMode==='invalid'?${JSON.stringify(invalidMarkedPack)}:${JSON.stringify(markedPack)});
-    await new Promise(resolve=>setTimeout(resolve,state.packDelay));
-    const article=document.createElement('article');document.querySelector('main').appendChild(article);
-    await new Promise(resolve=>setTimeout(resolve,20));
-    const message=document.createElement('div');message.setAttribute('data-message-author-role','assistant');state.lastAssistant=message;
-    const pre=document.createElement('pre');pre.textContent='';message.appendChild(pre);article.appendChild(message);
-    const copy=document.createElement('button');copy.type='button';copy.textContent='Copy';copy.setAttribute('data-testid','fixture-copy');article.appendChild(copy);
-    for(let i=0;i<text.length;i+=90){pre.textContent+=text.slice(i,i+90);await new Promise(resolve=>setTimeout(resolve,20))}
-    state.packReplies++;
-  }
   send.addEventListener('click',event=>{
     if(send.disabled)return;
     const prompt=editor.innerText;state.sent.push({text:prompt,trusted:event.isTrusted,file:state.changes[state.changes.length-1]});
     const article=document.createElement('article'),user=document.createElement('div');user.setAttribute('data-message-author-role','user');user.textContent=prompt;article.appendChild(user);document.querySelector('main').appendChild(article);state.lastUser=user;
-    if(prompt.includes('MILO_GAME_PACK_V1'))void produceGamePack(prompt);
     editor.replaceChildren();previews.replaceChildren();state.uploadReady=false;progress.hidden=true;update();
     // Keep the same underlying File selection: production must reset value to
     // upload the same photo again, rather than relying on a remounted input.
@@ -81,4 +53,4 @@ button{min-height:36px;padding:8px}#previews{display:flex;gap:8px}#previews img{
 })();
 </script></body></html>`;
 
-module.exports = { html, pack, markedPack };
+module.exports = { html };

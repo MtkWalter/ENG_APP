@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('milo', {
   feedGame: () => ipcRenderer.invoke('shell:game-feed'),
   speakGame: () => ipcRenderer.invoke('shell:game-speak'),
   restartGame: (style, character) => ipcRenderer.invoke('shell:game-restart', style, character),
+  startGameTopic: (topic, style, character) => ipcRenderer.invoke('shell:game-topic', topic, style, character),
+  startGameText: (text, style, character) => ipcRenderer.invoke('shell:game-text', text, style, character),
   bounds: rect => ipcRenderer.send('shell:bounds', rect),
   on: callback => {
     const handler = (_event, message) => callback(message);

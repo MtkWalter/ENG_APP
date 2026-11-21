@@ -1,305 +1,209 @@
 'use strict';
-
 const { _electron: electron } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const sharp = require('sharp');
+const { builtinMaterial, materialFromText, GAME_TOPICS } = require('../src/game-material.cjs');
+const { loadDictionary } = require('../src/dictionary.cjs');
 const { validateWave } = require('../src/speech.cjs');
-const { buildLessonPrompt } = require('../src/image-lessons.cjs');
-const { html, pack } = require('./fixtures/image-learning.cjs');
-const root = path.join(__dirname, '..');
-const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'milo-native-games-'));
-const selectedImage = path.join(directory, 'game-image.png');
-let app, page;
-
-async function chatEvaluate(source) {
-  return app.evaluate(({ webContents }, code) => {
-    const contents = webContents.getAllWebContents().find(item => item.getURL().startsWith('https://chatgpt.com/'));
-    return contents ? contents.executeJavaScript(code) : null;
-  }, source);
-}
-async function waitChat(source) {
-  for (let i = 0; i < 100; i++) {
-    if (await chatEvaluate(source)) return;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error('Native game fixture condition timed out: ' + source);
-}
-async function toggleMaterial() {
-  const position = await chatEvaluate(`(() => {
-    const button=window.__fixture.lastAssistant.parentElement.querySelector('[data-milo-game-pack-toggle]');
-    button.scrollIntoView({block:'center',behavior:'instant'});const rect=button.getBoundingClientRect();
-    return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)};
-  })()`);
-  await app.evaluate(({ webContents }, point) => {
-    const contents=webContents.getAllWebContents().find(item=>item.getURL().startsWith('https://chatgpt.com/'));
-    contents.focus();contents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
-    contents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
-  }, position);
-}
+const { html } = require('./fixtures/image-learning.cjs');
+const root = path.join(__dirname, '..'), directory = fs.mkdtempSync(path.join(os.tmpdir(), 'milo-local-games-'));
+const selectedImage = path.join(directory, 'my-english-picture.png');
+let app, page, dictionary, source = builtinMaterial().pack;
 const snapshot = () => page.evaluate(() => window.__gameState);
-async function waitGame(predicate) {
-  const matches = Function('state', 'return (' + predicate + ')');
-  for (let i = 0; i < 200; i++) {
-    const state = await snapshot();
-    if (state && matches(state)) return;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error('Native game state timed out: ' + predicate);
+const waitGame = predicate => page.waitForFunction(predicate => Function('state', 'return (' + predicate + ')')(window.__gameState), predicate);
+const waitImage = status => page.waitForFunction(status => window.__imageState?.status === status &&
+  document.querySelector('#image-status').parentElement.dataset.busy === 'false', status);
+async function chatEvaluate(code) {
+  return app.evaluate(({ webContents }, code) => webContents.getAllWebContents()
+    .find(item => item.getURL().startsWith('https://chatgpt.com/'))?.executeJavaScript(code), code);
 }
-async function waitImage(status) {
-  await page.waitForFunction(status => window.__imageState?.status === status &&
-    document.querySelector('#image-status').parentElement.dataset.busy === 'false', status, { timeout: 30000 });
+function expected(state) {
+  const index = Number(state.task.id.split('-')[1]);
+  return state.task.kind === 'memory' ? source.words[index].meaning : state.task.kind === 'spelling' ? source.words[index].word : source.patterns[index].answer;
 }
-function correctAnswer(state) {
-  if (state.task.kind === 'memory') return pack.words.find(entry => entry.word === state.task.word).meaning;
-  if (state.task.kind === 'spelling') return pack.words.find(entry => entry.meaning === state.task.meaning).word;
-  return pack.patterns.find(entry => entry.prompt === state.task.prompt).answer;
-}
-async function answerCorrect() {
-  const state = await snapshot(), expected = correctAnswer(state);
-  if (state.task.choices?.length) await page.locator('#game-choices button').filter({ hasText: new RegExp('^' + expected + '$') }).click();
-  else { await page.locator('#game-answer').fill(expected); await page.locator('#game-submit').click(); }
+async function answer() {
+  const state = await snapshot(), target = expected(state);
+  if (state.task.choices?.length) await page.locator('#game-choices').getByRole('button', { name: target, exact: true }).click();
+  else { await page.locator('#game-answer').fill(target); await page.locator('#game-submit').click(); }
   await waitGame('state.canNext === true');
-  return snapshot();
 }
 async function next() {
-  const state = await snapshot();
+  const before = await snapshot();
   await page.locator('#game-next').click();
-  await waitGame('state.complete || (!state.canNext && state.task?.id !== ' + JSON.stringify(state.task.id) + ')');
+  await waitGame('state.complete || (!state.canNext && state.task.id !== ' + JSON.stringify(before.task.id) + ')');
+}
+async function restart(style, character = 'kuromi') {
+  const round = (await snapshot()).round;
+  await page.locator('#game-settings').evaluate(node => { node.open = true; });
+  await page.locator('input[name="image-game-style"][value="' + style + '"]').check();
+  await page.locator('input[name="image-character"][value="' + character + '"]').check();
+  await page.locator('#game-settings').evaluate(node => { node.open = false; });
+  await page.locator('#game-restart').click();
+  await waitGame('state.round > ' + round + ' && state.style === ' + JSON.stringify(style));
+}
+async function monitorGrid() {
+  await page.evaluate(() => {
+    window.__gridWrites = 0;
+    window.__gridObserver?.disconnect();
+    window.__gridObserver = new MutationObserver(records => { window.__gridWrites += records.length; });
+    window.__gridObserver.observe(document.getElementById('game-puzzle-grid'), { childList: true });
+  });
 }
 async function capture(name) {
   await page.locator('#image-game').scrollIntoViewIfNeeded();
   await page.locator('#image-game').screenshot({ path: path.join(root, 'test-results', name) });
 }
-
 (async () => {
   try {
-    await sharp({ create: { width: 80, height: 60, channels: 3, background: '#669966' } }).png().toFile(selectedImage);
+    fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
+    fs.copyFileSync(path.join(root, 'assets', 'ocr-sample.png'), selectedImage);
+    dictionary = await loadDictionary(path.join(root, 'assets', 'android'));
     app = await electron.launch({ args: [root, ...(process.platform === 'linux' ? ['--no-sandbox', '--ozone-platform=headless', '--disable-gpu'] : [])],
       env: { ...process.env, MILO_TEST_MODE: '1', MILO_TEST_DATA: path.join(directory, 'profile'), MILO_TEST_IMAGE: selectedImage }, timeout: 60000 });
     page = await app.firstWindow();
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1420, 1080));
     await page.waitForSelector('#image-tab');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 1050));
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.evaluate(() => window.milo.on(({ type, data }) => {
-      if (type === 'image-lesson') window.__imageState = data;
-      if (type === 'game') window.__gameState = data;
-    }));
-    await app.evaluate(({ session }, html) => session.fromPartition('persist:milo-chat').protocol.handle('https',
-      () => new Response(html, { headers: { 'content-type': 'text/html', 'cache-control': 'no-store' } })), html);
-    await page.locator('#reload').click();
-    await waitChat('!!window.__fixture');
-    // Reproduce ChatGPT's actual long-message presentation independently of
-    // the shared basic upload fixture. The app still sends the full production
-    // prompt; its mounted user role omits the tail containing the request ID.
-    await chatEvaluate(`(() => {
-      const state=window.__fixture;
-      state.collapsedGamePrompts=0;state.thinkingHeaders=0;state.expandClicks=0;
-      const update=node=>{
-        if(node.nodeType!==1)return;
-        const roles=[...(node.matches('[data-message-author-role]')?[node]:[]),...node.querySelectorAll('[data-message-author-role]')];
-        for(const role of roles){
-          if(role.getAttribute('data-message-author-role')==='user'&&!role.hasAttribute('data-fixture-collapsed')){
-            const original=role.textContent;
-            if(!original.includes('MILO_GAME_PACK_V1'))continue;
-            role.setAttribute('data-fixture-collapsed','1');role.textContent=original.slice(0,140)+'…';
-            const more=document.createElement('button');more.type='button';more.textContent='顯示較多';
-            more.addEventListener('click',()=>{state.expandClicks++});role.appendChild(more);state.collapsedGamePrompts++;
-          }else if(role.getAttribute('data-message-author-role')==='assistant'&&!role.hasAttribute('data-fixture-thinking')){
-            role.setAttribute('data-fixture-thinking','1');
-            const header=document.createElement('div');header.setAttribute('data-fixture-thinking-header','1');
-            header.textContent='思考了 1 秒';role.prepend(header);state.thinkingHeaders++;
-          }
-        }
-      };
-      const observer=new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)update(node)});
-      observer.observe(document.querySelector('main'),{childList:true,subtree:true});state.presentationObserver=observer;
-    })()`);
-    await page.locator('#image-tab').click();
-    await page.locator('input[name="image-mode"][value="vocabulary"]').check();
-    await page.locator('input[name="image-game-style"][value="quest"]').check();
-    await page.locator('#image-pick').click();
-    await waitImage('sent'); await waitGame('state.status === "ready" && state.style === "quest"');
-    const sentPrompt=await chatEvaluate('window.__fixture.sent[0].text');
-    const sentRequest=sentPrompt.match(/MILO_GAME_REQUEST:([a-f0-9-]{36})/i)?.[1];
-    assert.ok(sentRequest,'the actual outgoing game prompt has a fresh request identifier');
-    const normalized=text=>text.replace(/\s+/g,' ').trim();
-    assert.equal(normalized(sentPrompt),normalized(buildLessonPrompt('vocabulary','kuromi','quest',sentRequest)));
-    assert.equal(await chatEvaluate('window.__fixture.collapsedGamePrompts'),1);
-    assert.equal(await chatEvaluate('window.__fixture.lastUser.textContent.includes("MILO_GAME_REQUEST:")'),false,'the mounted collapsed user message contains no request nonce');
-    assert.equal(await chatEvaluate('window.__fixture.lastUser.textContent.endsWith("…顯示較多")'),true);
-    assert.equal(await chatEvaluate('window.__fixture.lastAssistant.firstElementChild.hasAttribute("data-fixture-thinking-header")'),true);
-    assert.equal(await chatEvaluate('window.__fixture.expandClicks'),0,'reception never expands the website user prompt');
-    assert.equal(await page.locator('#game-play').isVisible(), true);
-    assert.equal((await snapshot()).task.kind, 'memory');
-    assert.equal((await snapshot()).progress.total, 8);
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('shell:event',
-      { type: 'lookup', data: { id: 7001, text: 'garden', kind: 'word', kk: '', chinese: '' } }));
-    await page.waitForFunction(() => document.getElementById('dictionary-tab').getAttribute('aria-selected') === 'true');
-    await page.locator('#image-tab').click();
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('shell:event',
-      { type: 'lookup', data: { id: 7001, text: 'garden', kind: 'word', kk: '', chinese: '花園', translated: true } }));
-    await page.waitForFunction(() => document.getElementById('chinese').textContent === '花園');
-    assert.equal(await page.locator('#image-tab').getAttribute('aria-selected'), 'true', 'a late dictionary translation must not switch away from the game');
-    await page.evaluate(() => {
-      const grid = document.getElementById('game-puzzle-grid');
-      const original = grid.replaceChildren.bind(grid);
-      window.__gameRenderMetrics = { puzzleRebuilds: 0 };
-      grid.replaceChildren = (...nodes) => { window.__gameRenderMetrics.puzzleRebuilds++; return original(...nodes); };
+    await page.evaluate(async () => {
+      const initial = await window.milo.state(); window.__gameState = initial.game; window.__imageState = initial.imageLesson;
+      window.milo.on(({ type, data }) => { if (type === 'game') window.__gameState = data; if (type === 'image-lesson') window.__imageState = data; if (type === 'lookup') window.__lookupState = data; });
     });
-    assert.equal(await chatEvaluate('window.__fixture.sent.length'), 1);
-    assert.equal(await chatEvaluate('getComputedStyle(window.__fixture.lastAssistant).display'), 'none', 'validated game data is collapsed in the chat presentation');
-    assert.equal(await chatEvaluate('getComputedStyle(window.__fixture.lastUser).display'), 'none', 'only the matching automatic teacher prompt is collapsed');
-    assert.equal(await chatEvaluate('document.getElementById("native-sidebar").getBoundingClientRect().width'), 150);
-    assert.equal(await chatEvaluate('window.__fixture.lastAssistant.parentElement.querySelector("[data-testid=fixture-copy]").getClientRects().length > 0'), true, 'surrounding website copy actions remain available');
-    await toggleMaterial();
-    await waitChat('getComputedStyle(window.__fixture.lastAssistant).display !== "none"');
-    assert.equal(await chatEvaluate('getComputedStyle(window.__fixture.lastUser).display !== "none"'), true);
-    assert.equal(await chatEvaluate('window.__fixture.lastAssistant.textContent.includes("MILO_GAME_PACK_V1")'), true, 'expanding material keeps the original document intact');
-    assert.equal(await chatEvaluate('window.__fixture.lastUser.textContent.endsWith("…顯示較多")'),true,'material toggling preserves the website collapsed user representation');
-    assert.equal(await chatEvaluate('window.__fixture.expandClicks'),0);
-    await toggleMaterial();
-    await waitChat('getComputedStyle(window.__fixture.lastAssistant).display === "none"');
-    const phases = new Set(['memory']);
-    assert.match(await page.locator('.game-pronunciation-note').filter({ hasText: '不評判實際發音' }).textContent(), /不評判實際發音/);
-    let speech;
+    await waitGame('state.status === "ready" && state.material.source === "builtin"');
+    assert.equal(await page.locator('#image-panel').isVisible(), true);
+    assert.equal(await page.locator('#game-play').isVisible(), true, 'game exists before visiting or logging into ChatGPT');
+    assert.equal((await snapshot()).progress.total, 15);
+
+    await app.evaluate(({ session }, html) => session.fromPartition('persist:milo-chat').protocol.handle('https',
+      () => new Response(html, { headers: { 'content-type': 'text/html' } })), html);
+    await page.locator('#reload').click();
+    for (let i = 0; i < 100 && !await chatEvaluate('!!window.__fixture'); i++) await page.waitForTimeout(50);
+    // Simulate an occupied AI composer. Local games must leave it untouched.
+    await chatEvaluate('document.getElementById("prompt-textarea").innerText="Keep my existing chat draft.";document.getElementById("fixture-send").disabled=true');
+    const focus = await page.locator('#focus').getAttribute('aria-pressed');
+    const initial = await snapshot();
+    const wrong = initial.task.choices.find(choice => choice !== expected(initial));
+    await page.locator('#game-choices').getByRole('button', { name: wrong, exact: true }).click();
+    await waitGame('state.feedback?.correct === false');
+    assert.equal((await snapshot()).progress.stars, 0);
+    await monitorGrid();
+    await page.locator('#game-hint').click();
+    await page.waitForTimeout(70);
+    const hiddenGridRebuilds = await page.evaluate(() => window.__gridWrites);
+    assert.equal(hiddenGridRebuilds, 0);
+    await answer();
+    const earned = await snapshot();
+    await page.evaluate(value => window.milo.answerGame(value), expected(initial));
+    assert.deepEqual((await snapshot()).progress, earned.progress, 'a completed task cannot earn duplicate rewards');
+    await next();
+    const phases = new Set();
+    while (!(await snapshot()).complete) {
+      const current = await snapshot(); phases.add(current.task.kind);
+      if (current.task.kind === 'spelling' && current.task.id === 'spelling-0') {
+        assert.equal(await page.locator('#game-word').isVisible(), false);
+        await page.locator('#game-hint').click();
+      }
+      await answer(); await next();
+    }
+    const quest = await snapshot();
+    assert.equal(quest.progress.completed, 15); assert.equal(quest.mastered, 13); assert.equal(quest.assisted, 2);
+    assert.deepEqual([...phases], ['memory', 'spelling', 'sentence']);
+    await capture('local-game-quest.png');
+
+    await restart('pet', 'cinnamoroll');
+    assert.equal(await page.locator('#game-feed').isDisabled(), true);
+    await answer(); await page.locator('#game-feed').click();
+    await waitGame('state.progress.petEnergy === 1');
+    const pet = await snapshot(); assert.equal(pet.progress.food, 0);
+    assert.equal(await page.locator('#game-feed').isDisabled(), true);
+    await capture('local-game-pet.png');
+
+    await restart('puzzle');
+    await monitorGrid(); await page.locator('#game-hint').click(); await page.waitForTimeout(70);
+    const hintGridRebuilds = await page.evaluate(() => window.__gridWrites); assert.equal(hintGridRebuilds, 0);
+    while ((await snapshot()).task.kind === 'memory') { await answer(); await next(); }
+    const spelling = await snapshot(), target = expected(spelling);
+    assert.equal(spelling.task.word, undefined);
+    assert.deepEqual([...spelling.task.letters].sort(), [...target].sort());
+    assert.notEqual(spelling.task.letters.join(''), target);
+    for (const letter of target) await page.locator('#game-letters button:not([disabled])').filter({ hasText: new RegExp('^' + letter + '$') }).first().click();
+    assert.equal(await page.locator('#game-answer').inputValue(), target);
+    await page.locator('#game-submit').click(); await waitGame('state.canNext === true');
+    const puzzle = await snapshot(); assert.equal(puzzle.puzzle.revealed, 7);
+    await capture('local-game-puzzle.png');
+
+    for (const topic of GAME_TOPICS) {
+      await page.locator('#game-topic').selectOption(topic.id);
+      await page.locator('#game-topic-start').click();
+      await waitGame('state.material.id === ' + JSON.stringify(topic.id) + ' && state.progress.completed === 0');
+      source = builtinMaterial(topic.id).pack; await answer();
+    }
+    await page.locator('#game-text').fill('The garden is beautiful. I see a flower, a bench and a butterfly.');
+    await page.locator('#game-text-start').click();
+    await waitGame('state.material.source === "text"');
+    source = materialFromText(await page.locator('#game-text').inputValue(), dictionary).pack;
+    await answer();
+    const customRound = (await snapshot()).round;
+    await page.locator('#game-text').fill('zzzz qzxx');
+    await page.locator('#game-text-start').click();
+    await page.waitForSelector('#game-text-error:not([hidden])');
+    assert.equal((await snapshot()).round, customRound, 'invalid custom material preserves the game');
+
+    await page.locator('#image-pick').click();
+    await waitImage('ready');
+    const image = await page.evaluate(() => window.__imageState);
+    assert.match(image.text, /breakfast/i);
+    assert.equal((await snapshot()).material.source, 'image');
+    assert.ok(!JSON.stringify(image).includes(directory), 'normalized local paths are not exposed to the renderer');
+    source = materialFromText(image.text, dictionary, 'image').pack;
+    await answer();
+    assert.equal(await page.locator('#focus').getAttribute('aria-pressed'), focus, 'local OCR never changes chat focus mode');
+    const imageRound = (await snapshot()).round;
+    await page.locator('#image-start').click();
+    await page.waitForSelector('#image-cancel:not([hidden])');
+    await page.locator('#image-cancel').click();
+    await waitImage('cancelled'); await page.waitForTimeout(300);
+    assert.equal((await snapshot()).round, imageRound, 'cancelled OCR cannot overwrite the current game');
+    await page.locator('#image-clear').click(); await waitImage('idle');
+    assert.equal((await snapshot()).material.source, 'image', 'removing the picture does not destroy playable material');
+
+    assert.equal(await chatEvaluate('window.__fixture.sent.length'), 0, 'no AI generation messages were sent');
+    assert.equal(await chatEvaluate('window.__fixture.changes.length'), 0, 'no images were uploaded to AI');
+    assert.equal(await chatEvaluate('document.getElementById("prompt-textarea").innerText'), 'Keep my existing chat draft.');
+    assert.equal(await chatEvaluate('document.getElementById("native-sidebar").getClientRects().length > 0'), true);
+    assert.equal(await chatEvaluate('typeof window.milo'), 'undefined');
+    await page.evaluate(() => window.milo.lookup('new'));
+    await page.waitForSelector('#lookup:not([hidden])');
+    const lookup = await page.locator('#english').textContent();
+    await page.locator('#image-tab').click();
+    const lastLookup = await page.evaluate(() => window.__lookupState);
+    await app.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].webContents.send('shell:event',
+      { type: 'lookup', data: { ...value, chinese: '新的' } }), lastLookup);
+    assert.equal(await page.locator('#image-panel').isVisible(), true, 'background dictionary results do not interrupt gameplay');
+    assert.equal(lookup, 'new');
+
+    // Completely unload ChatGPT. The game still starts and accepts answers.
+    await app.evaluate(({ webContents }) => webContents.getAllWebContents().find(item => item.getURL().startsWith('https://chatgpt.com/')).loadURL('about:blank'));
+    await page.locator('#game-topic').selectOption('breakfast');
+    await page.locator('#game-topic-start').click();
+    await waitGame('state.material.id === "breakfast"');
+    source = builtinMaterial().pack; await answer();
+    let speech = { native: false, reason: 'Windows native voice is checked in Windows CI.' };
     if (process.platform === 'win32') {
       const audio = await page.evaluate(() => window.milo.speakGame());
       assert.equal(audio.error, undefined);
-      const bytes = Buffer.from(audio.audio, 'base64'); assert.equal(validateWave(bytes), true);
-      speech = { native: true, validWave: true, bytes: bytes.length, voice: audio.voice };
-      await page.evaluate(() => window.milo.stopSpeech());
-    } else {
-      await page.locator('#game-speak').click();
-      await page.waitForFunction(() => document.querySelector('#game-speech-note').textContent.includes('只在 Windows'));
-      speech = { native: false, platformMessage: true };
+      const wave = Buffer.from(audio.audio, 'base64'); assert.ok(validateWave(wave));
+      speech = { native: true, validWave: true, bytes: wave.length };
     }
-
-    // A hint and a retry are separate assisted cases, rather than awarding
-    // independent mastery merely because a later answer becomes correct.
-    await page.locator('#game-hint').click();
-    await waitGame('!!state.hint');
-    const hiddenGridRebuilds = await page.evaluate(() => window.__gameRenderMetrics.puzzleRebuilds);
-    assert.equal(hiddenGridRebuilds, 0, 'hidden puzzle artwork must not rebuild during quest feedback');
-    let answered = await answerCorrect();
-    assert.equal(answered.assisted, 1); assert.equal(answered.mastered, 0); assert.equal(answered.progress.stars, 0);
-    const once = { ...answered.progress };
-    await page.evaluate(answer => window.milo.answerGame(answer), correctAnswer(answered));
-    assert.deepEqual((await snapshot()).progress, once, 'repeated answers cannot duplicate a reward');
-    await next();
-    await page.locator('#game-choices button').filter({ hasText: /^長椅$/ }).click();
-    await waitGame('state.feedback?.correct === false');
-    assert.equal((await snapshot()).progress.completed, 1);
-    answered = await answerCorrect();
-    assert.equal(answered.assisted, 2); assert.equal(answered.mastered, 0);
-    await next();
-    while (!(await snapshot()).complete) {
-      const current = await snapshot(); phases.add(current.task.kind);
-      if (current.task.kind === 'spelling') {
-        assert.equal(await page.locator('#game-word').isVisible(), false, 'spelling questions do not display the target word');
-      }
-      await answerCorrect(); await next();
-    }
-    const quest = await snapshot();
-    assert.deepEqual([...phases], ['memory', 'spelling', 'sentence']);
-    assert.equal(quest.progress.completed, 8); assert.equal(quest.progress.stars, 6);
-    assert.equal(quest.mastered, 6); assert.equal(quest.assisted, 2);
-    assert.equal(quest.complete, true); assert.equal(await page.locator('#game-question').isVisible(), false);
-    fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
-    await capture('native-quest.png');
-
-    await page.locator('input[name="image-game-style"][value="pet"]').check();
-    await page.locator('input[name="image-character"][value="cinnamoroll"]').check();
-    await page.locator('#game-restart').click();
-    await waitGame('state.style === "pet" && state.character === "cinnamoroll" && state.progress.completed === 0');
-    assert.equal((await snapshot()).progress.food, 0); assert.equal(await page.locator('#game-feed').isDisabled(), true);
-    await answerCorrect();
-    assert.equal((await snapshot()).progress.food, 1);
-    await page.locator('#game-feed').click();
-    await waitGame('state.progress.food === 0 && state.progress.petEnergy === 1');
-    assert.equal(await page.locator('#game-feed').isDisabled(), true);
-    for (let i = 0; i < 3; i++) await page.evaluate(() => window.milo.feedGame());
-    const pet = await snapshot();
-    assert.equal(pet.progress.food, 0); assert.equal(pet.progress.petEnergy, 1);
-    assert.equal(pet.pet.mood, 'happy');
-    assert.equal(await chatEvaluate('window.__fixture.sent.length'), 1, 'local restarts and feeding do not send another image or prompt');
-    await capture('native-pet.png');
-
-    await page.locator('input[name="image-game-style"][value="puzzle"]').check();
-    await page.locator('input[name="image-character"][value="kuromi"]').check();
-    await page.locator('#game-restart').click();
-    await waitGame('state.style === "puzzle" && state.progress.completed === 0');
-    assert.equal(await page.locator('#game-puzzle').isVisible(), true);
-    assert.equal(await page.locator('#game-puzzle-grid .puzzle-piece').count(), 8);
-    while ((await snapshot()).task.kind === 'memory') { await answerCorrect(); await next(); }
-    const spelling = await snapshot(), word = correctAnswer(spelling);
-    assert.equal(spelling.task.kind, 'spelling');
-    assert.notEqual(spelling.task.letters.join(''), word, 'puzzle letters are actually rearranged');
-    assert.equal(await page.locator('#game-word').isVisible(), false);
-    await page.evaluate(() => {
-      window.__gameRenderMetrics.puzzleRebuilds = 0;
-      window.__firstPuzzleTile = document.getElementById('game-puzzle-grid').firstChild;
-    });
-    await page.locator('#game-hint').click(); await waitGame('!!state.hint');
-    const hintGridRebuilds = await page.evaluate(() => window.__gameRenderMetrics.puzzleRebuilds);
-    assert.equal(hintGridRebuilds, 0, 'a hint must reuse the existing puzzle tiles');
-    assert.equal(await page.evaluate(() => window.__firstPuzzleTile === document.getElementById('game-puzzle-grid').firstChild), true);
-    await page.locator('#game-letters button').first().click();
-    assert.equal((await page.locator('#game-answer').inputValue()).length, 1);
-    await page.locator('#game-clear-answer').click();
-    assert.equal(await page.locator('#game-answer').inputValue(), '');
-    for (const letter of word) await page.locator('#game-letters button:not(:disabled)').filter({ hasText: new RegExp('^' + letter + '$') }).first().click();
-    assert.equal(await page.locator('#game-answer').inputValue(), word);
-    await page.locator('#game-submit').click(); await waitGame('state.canNext === true');
-    const puzzle = await snapshot();
-    assert.equal(puzzle.puzzle.revealed, 4); assert.equal(puzzle.progress.completed, 4);
-    assert.equal(puzzle.assisted, 1);
-    assert.equal(await page.locator('#game-puzzle-grid [data-revealed="true"]').count(), 4);
-    const progressGridRebuilds = await page.evaluate(() => window.__gameRenderMetrics.puzzleRebuilds);
-    assert.equal(progressGridRebuilds, 1, 'newly earned progress updates the artwork exactly once');
-    assert.equal(await chatEvaluate('window.__fixture.sent.length'), 1);
-    await capture('native-puzzle.png');
-
-    await chatEvaluate('window.__fixture.gamePackMode="invalid"');
-    await page.locator('#image-start').click();
-    await waitImage('error'); await waitGame('state.status === "error"');
-    assert.equal((await snapshot()).task, null);
-    assert.equal(await page.locator('#game-play').isVisible(), false, 'invalid generated content never starts a game');
-    assert.equal(await chatEvaluate('getComputedStyle(window.__fixture.lastAssistant).display !== "none"'), true, 'invalid generated material is not concealed');
-    const invalidRestart = await page.evaluate(() => window.milo.restartGame('quest', 'kuromi'));
-    assert.ok(invalidRestart.error);
-    assert.equal(await chatEvaluate('window.__fixture.sent.length'), 2);
-    await chatEvaluate('window.__fixture.gamePackMode="none"');
-    await page.locator('#image-start').click();
-    await waitGame('state.status === "waiting"');
-    await waitChat('window.__fixture.sent.length === 3');
-    await page.waitForFunction(() => window.__imageState?.status === 'preparing');
-    await page.locator('#image-cancel').click();
-    await waitImage('cancelled'); await waitGame('state.status === "idle"');
-    assert.equal(await page.locator('#image-start').isEnabled(), true, 'cancelling a pending generated pack unlocks the learning controls');
-    await page.locator('#image-clear').click(); await waitImage('idle');
-    assert.equal((await snapshot()).status, 'idle');
-    assert.equal(await chatEvaluate('window.__fixture.collapsedGamePrompts'),3,'valid, invalid and cancelled jobs all use the collapsed website presentation');
-    assert.equal(await chatEvaluate('window.__fixture.expandClicks'),0);
-    await chatEvaluate('window.__fixture.presentationObserver.disconnect()');
     assert.deepEqual(errors, []);
-    const report = { quest: { completed: quest.progress.completed, mastered: quest.mastered, assisted: quest.assisted,
-        phases: [...phases], stars: quest.progress.stars, duplicateRewardsPrevented: true },
-      pet: { fed: pet.progress.petEnergy, food: pet.progress.food, noNegativeFood: true, character: pet.character },
-      puzzle: { rearrangedLetters: true, revealed: puzzle.puzzle.revealed, total: puzzle.puzzle.total, assisted: puzzle.assisted },
-      localRestartsWithoutUpload: true, validatedMaterialCollapsed: true, originalMaterialToggleWorks: true,
-      collapsedUserPromptReady: true, mountedUserNonceAbsent: true, assistantThinkingHeaderAccepted: true,
-      productionPromptPreserved: true, websiteExpandButtonUntouched: true,
-      rendering: { hiddenGridRebuilds, hintGridRebuilds, progressGridRebuilds },
-      nativeSidebarPreserved: true, lateDictionaryResultKeepsGameVisible: true, invalidPackRejected: true, waitingCancellationUnlocksControls: true, speech,
-      limitation: 'Actual packaged-source Electron UI/IPC/gameplay with synthetic ChatGPT image教材; no real image understanding or pronunciation assessment verified.' };
+    const report = { startupPlayableWithoutChatGPT: true, builtInTopics: GAME_TOPICS.length, aiMessages: 0, aiImageUploads: 0,
+      quest: { completed: quest.progress.completed, mastered: quest.mastered, assisted: quest.assisted },
+      pet: { fed: pet.progress.petEnergy, food: pet.progress.food, character: pet.character },
+      puzzle: { rearrangedLetters: true, revealed: puzzle.puzzle.revealed }, hiddenGridRebuilds, hintGridRebuilds,
+      realImageOCR: true, editableMaterial: true, invalidTextPreservesGame: true, cancelledOCRPreservesGame: true,
+      focusAndChatDraftPreserved: true, gameWorksAfterChatUnloaded: true, nativeSidebarPreserved: true, speech };
     fs.writeFileSync(path.join(root, 'test-results', 'native-games.json'), JSON.stringify(report, null, 2));
-    console.log('Native learning games passed:', JSON.stringify(report));
-  } finally {
-    if (app) await app.close();
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
+    console.log('Independent native learning games passed:', report);
+  } finally { dictionary?.close(); if (app) await app.close(); fs.rmSync(directory, { recursive: true, force: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

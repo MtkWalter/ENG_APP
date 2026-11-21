@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseGamePack, createGame } = require('../src/learning-game.cjs');
+const { validateGamePack, createGame } = require('../src/learning-game.cjs');
 
 function pack() {
   return {
@@ -17,7 +17,6 @@ function pack() {
     ]
   };
 }
-const encode = value => 'MILO_GAME_PACK_V1\n' + JSON.stringify(value) + '\nMILO_GAME_PACK_END';
 const clone = value => JSON.parse(JSON.stringify(value));
 function answerFor(snapshot, source) {
   const index = Number(snapshot.task.id.split('-')[1]);
@@ -29,22 +28,11 @@ function finishMemory(game, source = pack()) {
   }
 }
 
-test('a bounded marked JSON pack becomes a clean, independent words-and-patterns object', () => {
-  const source = pack();
-  const clean = parseGamePack('圖片教學開始。\n' + encode(source) + '\n準備開始遊戲。');
-  assert.deepEqual(clean, source);
-  assert.deepEqual(Object.keys(clean), ['words', 'patterns']);
-  assert.deepEqual(parseGamePack('MILO_GAME_PACK_V1\n```json\n' + JSON.stringify(source) + '\n```\nMILO_GAME_PACK_END'), source);
-  clean.words[0].word = 'changed';
+test('native game material is validated and copied without a chat protocol', () => {
+  const source = pack(), clean = validateGamePack(source);
+  assert.deepEqual(clean, source); clean.words[0].word = 'changed';
   assert.equal(source.words[0].word, 'umbrella');
-});
-
-test('missing, ambiguous, malformed and oversized packs fail without partial acceptance', () => {
-  for (const value of [null, {}, '', JSON.stringify(pack()), 'MILO_GAME_PACK_V1 {}',
-    encode(pack()) + encode(pack()), 'MILO_GAME_PACK_END\n' + encode(pack()),
-    'MILO_GAME_PACK_V1\n{broken}\nMILO_GAME_PACK_END', '漢'.repeat(18_000) + encode(pack())]) {
-    assert.throws(() => parseGamePack(value), /學習遊戲資料無法使用/);
-  }
+  for (const input of [null, [], {}, '', JSON.stringify(source), { words: [], patterns: [] }]) assert.throws(() => validateGamePack(input));
 });
 
 test('validation bounds all fields and rejects duplicate, unsafe and answer-leaking content', () => {
@@ -78,11 +66,11 @@ test('validation bounds all fields and rejects duplicate, unsafe and answer-leak
   ];
   for (const mutation of mutations) {
     const source = pack(); mutation(source);
-    assert.throws(() => parseGamePack(encode(source)), /學習遊戲資料無法使用/);
+    assert.throws(() => validateGamePack(source), /學習遊戲資料無法使用/);
   }
   const safe = pack();
   safe.patterns[0].prompt = 'The animal ___ sleeping.';
-  assert.equal(parseGamePack(encode(safe)).patterns[0].answer, 'is', 'an answer substring inside another word is not a leaked token');
+  assert.equal(validateGamePack(safe).patterns[0].answer, 'is', 'an answer substring inside another word is not a leaked token');
 });
 
 test('each play style advances through memory, spelling and sentence stages with single-use rewards', () => {
@@ -172,7 +160,7 @@ test('optional fields and alternative blank markers support open-text sentence p
     { prompt: 'The bicycle is [blank] the window.', answer: 'next to' },
     { prompt: 'The windows □ open.', answer: 'are' }
   ];
-  const game = createGame(parseGamePack(encode(source)));
+  const game = createGame(validateGamePack(source));
   while (game.snapshot().phase !== 'sentence') {
     game.answer(answerFor(game.snapshot(), source)); game.next();
   }

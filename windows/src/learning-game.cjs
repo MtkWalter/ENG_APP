@@ -1,8 +1,5 @@
 'use strict';
 
-const PACK_START = 'MILO_GAME_PACK_V1';
-const PACK_END = 'MILO_GAME_PACK_END';
-const MAX_PACK_BYTES = 50 * 1024;
 const STYLES = Object.freeze({
   puzzle: { title: '單字拼圖', instruction: '每完成一題，就揭開一塊拼圖；卡住時可以看線索。' },
   pet: { title: '餵食學習夥伴', instruction: '完成練習收集點心，再親手餵給夥伴；不會因答錯扣食物。' },
@@ -76,17 +73,6 @@ function cleanPack(input) {
     return output;
   });
   return { words, patterns };
-}
-
-function parseGamePack(text) {
-  if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > MAX_PACK_BYTES) invalid('資料不可超過 50 KB。');
-  const start = text.indexOf(PACK_START), end = text.indexOf(PACK_END);
-  if (start < 0 || end < start + PACK_START.length || text.indexOf(PACK_START, start + PACK_START.length) !== -1 || text.indexOf(PACK_END, end + PACK_END.length) !== -1) invalid('找不到完整且唯一的遊戲資料區塊。');
-  let source = text.slice(start + PACK_START.length, end).trim();
-  if (/^```(?:json)?\s/i.test(source) && /\s```$/.test(source)) source = source.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  let input;
-  try { input = JSON.parse(source); } catch { invalid('遊戲資料不是有效的 JSON。'); }
-  return cleanPack(input);
 }
 
 function createGame(input, style = 'quest') {
@@ -172,7 +158,7 @@ function createGame(input, style = 'quest') {
     if (!task || solved || hintUsed) return snapshot();
     hintUsed = true;
     const expected = correctAnswer(task);
-    if (task.type === 'memory') hintText = task.entry.hint || '回想這個字在圖片中的位置，再比較選項的意思。';
+    if (task.type === 'memory') hintText = task.entry.hint || '先聽發音，再回想這個單字的意思。';
     else if (expected.length > 1) hintText = `開頭是「${expected[0]}」，答案共有 ${expected.replace(/[^A-Za-z]/g, '').length} 個字母。`;
     else hintText = '這個答案只有一個字母，可以再聽一次或回想句型。';
     return snapshot();
@@ -195,4 +181,4 @@ function createGame(input, style = 'quest') {
   return Object.freeze({ snapshot, answer, hint, next, feed, speechText });
 }
 
-module.exports = { parseGamePack, createGame };
+module.exports = { validateGamePack: cleanPack, createGame };

@@ -20,6 +20,8 @@ child.on('exit', code => {
     assert.equal(result.imageLearning.normalized, true);
     assert.deepEqual(result.imageLearning.characters, ['kuromi', 'cinnamoroll']);
     assert.deepEqual(result.nativeGameStyles, ['puzzle', 'pet', 'quest']);
+    assert.equal(result.localGames.localOCR, true); assert.equal(result.localGames.builtinTopics, 5);
+    assert.equal(result.localGames.noAIRequired, true); assert.ok(result.localGames.imageWords.length >= 3);
     console.log('Packaged Windows application self-test passed:', result);
   } catch (error) { console.error(error); process.exitCode = 1; }
 });

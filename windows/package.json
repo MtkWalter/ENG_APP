@@ -1,7 +1,7 @@
 {
   "name": "milo-english-windows",
   "productName": "Milo English",
-  "version": "2.2.2",
+  "version": "2.3.0",
   "description": "Milo 英文學習 Windows 桌面版：圖片教學、角色單字遊戲、語音與離線字典",
   "author": "MtkWalter",
   "private": true,
@@ -16,7 +16,6 @@
     "test:images": "node scripts/test-image-learning.cjs",
     "pretest:upload": "node scripts/generate-preload.cjs",
     "test:upload": "node scripts/test-upload-compatibility.cjs",
-    "test:game-reader": "node scripts/test-game-pack-reader.cjs",
     "pretest:games": "node scripts/generate-preload.cjs",
     "test:games": "node scripts/test-native-games.cjs",
     "test:translation": "node scripts/test-translation.cjs",
@@ -29,13 +28,16 @@
     "build:win": "electron-builder --win nsis portable zip --x64 --publish never",
     "prebuild:unpacked": "node scripts/generate-preload.cjs && node scripts/prepare-runtime.cjs",
     "build:unpacked": "electron-builder --win --x64 --dir --publish never",
-    "test:packaged": "node scripts/test-packaged.cjs"
+    "test:packaged": "node scripts/test-packaged.cjs",
+    "test:ocr": "node scripts/test-ocr.cjs"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
+    "@tesseract.js-data/eng": "1.0.0",
     "opencc-js": "1.0.5",
     "sharp": "0.34.5",
-    "sql.js": "1.14.1"
+    "sql.js": "1.14.1",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "electron": "45.3.2",
@@ -51,7 +53,8 @@
     "files": ["src/**/*", "build/chat-preload.cjs", "assets/**/*", "README.md", "PERFORMANCE.md", "THIRD-PARTY-NOTICES.md", "package.json"],
     "extraFiles": [{ "from": "build/runtime", "to": ".", "filter": ["*.dll", "README.txt"] }],
     "asar": true,
-    "asarUnpack": ["node_modules/onnxruntime-node/**/*", "node_modules/@img/**/*", "node_modules/sharp/**/*"],
+    "asarUnpack": ["node_modules/onnxruntime-node/**/*", "node_modules/@img/**/*", "node_modules/sharp/**/*",
+      "node_modules/tesseract.js/**/*", "node_modules/tesseract.js-core/**/*", "node_modules/@tesseract.js-data/**/*"],
     "npmRebuild": false,
     "afterPack": "scripts/after-pack.cjs",
     "win": {

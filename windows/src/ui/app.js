@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 let state = {}, result = null, toastTimer, audio = null, speechSequence = 0;
-let imageLesson = { image: null, mode: 'conversation', status: 'idle', error: '', message: '' };
+let imageLesson = { image: null, mode: 'vocabulary', status: 'idle', error: '', message: '' };
 let imageRequestPending = false, imageStateSeen = false;
 let gameState = { status: 'idle', progress: {} }, gamePending = false, gameQuestionKey = '', gameChoicesKey = '';
 let gameLettersKey = '', gamePuzzleKey = '', usedGameLetters = new Set(), gameStateSeen = false;
@@ -9,9 +9,9 @@ const imageModeDescriptions = {
   conversation: 'ChatGPT 會先描述圖片，再一次問你一個簡單問題，陪你用英文回答。',
   grammar: '從圖片中的人物與動作練句型，一次造一句，讓 ChatGPT 幫你修正並解釋。',
   quiz: '依照圖片一次出一題，先讓你回答，再說明答案，接著挑戰下一題。',
-  vocabulary: '把圖片變成記憶、拼字和句型小遊戲。在右側完成題目，拿星星、解拼圖，還能餵夥伴吃點心。'
+  vocabulary: '記憶、拼字、句型都由 Milo 直接處理。選主題立即玩，也能在本機讀取圖片文字，不必登入或等待 AI。'
 };
-const imageBusy = () => imageRequestPending || ['preparing', 'uploading', 'sending'].includes(imageLesson.status) || gameState.status === 'waiting';
+const imageBusy = () => imageRequestPending || ['preparing', 'uploading', 'sending'].includes(imageLesson.status);
 const selectedImageMode = () => document.querySelector('input[name="image-mode"]:checked').value;
 const selectedImageCharacter = () => document.querySelector('input[name="image-character"]:checked').value;
 const selectedGameStyle = () => document.querySelector('input[name="image-game-style"]:checked').value;
@@ -27,7 +27,18 @@ function renderImageControls() {
   const busy = imageBusy();
   const hasImage = !!imageLesson.image;
   $('image-modes').disabled = busy;
-  $('focus').disabled = busy;
+  const local = selectedImageMode() === 'vocabulary';
+  $('focus').disabled = busy && !local;
+  $('game-library').hidden = !local;
+  $('game-settings').hidden = !local;
+  $('learning-title').textContent = local ? '遊戲準備好了！' : 'AI 圖片教學';
+  $('learning-intro').textContent = local ? '由 Milo 出題、計分與闖關。直接玩內建主題，或載入自己的英文教材。' : '選用 AI 輔助看圖對話、講解句型或出測驗；本機遊戲可隨時切回繼續。';
+  $('game-text-section').hidden = !local;
+  $('game-topic-start').disabled = busy;
+  $('game-topic').disabled = busy;
+  $('game-text-start').disabled = busy;
+  $('game-text').disabled = busy;
+  $('image-import-title').textContent = local ? '用自己的圖片或文字練習' : '選用的 AI 圖片教學';
   $('image-mode-description').textContent = imageModeDescriptions[selectedImageMode()];
   $('image-characters').hidden = selectedImageMode() !== 'vocabulary';
   $('image-characters').disabled = busy;
@@ -40,18 +51,20 @@ function renderImageControls() {
   if ($('character-preview').getAttribute('src') !== characterSource) $('character-preview').src = characterSource;
   $('character-preview').alt = characterName + '學習夥伴';
   $('character-name').textContent = characterName + '陪你闖關';
+  const styleLabel = { quest: '任務闖關', pet: '寵物點心屋', puzzle: '益智拼圖' }[selectedGameStyle()];
+  $('game-settings-label').textContent = '夥伴與玩法：' + characterName + ' · ' + styleLabel;
   $('image-pick').disabled = busy;
-  $('image-pick').textContent = hasImage ? '更換圖片，開始學習' : '載入圖片，開始學習';
+  $('image-pick').textContent = local ? hasImage ? '更換圖片，辨識英文' : '載入圖片，辨識英文' : hasImage ? '更換圖片，開始 AI 教學' : '載入圖片，開始 AI 教學';
   $('image-start').disabled = busy || !hasImage;
   $('image-start').textContent = selectedImageMode() === 'vocabulary'
-    ? gameState.status === 'ready' ? '重新依圖片出題' : '開始圖片遊戲'
+    ? '重新辨識這張圖片'
     : imageLesson.status === 'sent' && selectedImageMode() === imageLesson.mode ? '重新開始這個模式' : '開始這個模式';
   $('image-clear').disabled = busy;
   $('image-session-actions').hidden = !hasImage;
   $('image-cancel').hidden = !busy;
   $('image-status').parentElement.dataset.busy = String(busy);
   $('image-learning-note').textContent = selectedImageMode() === 'vocabulary'
-    ? '圖片會傳到目前登入的 ChatGPT，產生這張圖的遊戲題目，需要網路及可使用圖片的帳號。題目準備好後，直接在右側作答；發音使用 Windows 朗讀，不會自動評分你的聲音。'
+    ? '遊戲不傳送圖片或指令給 ChatGPT。本機辨識英文，再用內建字典與出題規則練習；圖片需有清楚英文。辨識錯誤可自行修改。AI 看圖對話、文法、測驗是另外選用的輔助功能。'
     : '圖片會傳到目前登入的 ChatGPT 對話，需要網路及可使用圖片的帳號。對話、文法和測驗可在左側繼續回答；要練口說，可開啟 ChatGPT 語音。';
 }
 function renderGameControls() {
@@ -72,11 +85,11 @@ function renderGameControls() {
 function renderGame(value) {
   if (!value || typeof value !== 'object') return;
   gameStateSeen = true;
-  const previousStatus = gameState.status;
+  const previousRound = gameState.round;
   gameState = { status: 'idle', progress: {}, ...value };
   const progress = gameState.progress || {};
   const task = gameState.task;
-  const questionKey = [gameState.status, progress.completed, gameState.stage, task?.kind, task?.prompt, task?.word, gameState.canNext, gameState.complete].join('|');
+  const questionKey = [gameState.round, gameState.status, progress.completed, gameState.stage, task?.kind, task?.prompt, task?.word, gameState.canNext, gameState.complete].join('|');
   if (questionKey !== gameQuestionKey) {
     stopSpeech(); $('game-answer').value = ''; usedGameLetters.clear(); $('game-speech-note').hidden = true;
     gameQuestionKey = questionKey;
@@ -84,10 +97,13 @@ function renderGame(value) {
   const titles = { puzzle: '益智拼圖挑戰', pet: '和夥伴一起長大', quest: '英文任務闖關' };
   $('image-game').dataset.style = ['puzzle', 'pet', 'quest'].includes(gameState.style) ? gameState.style : 'quest';
   $('game-title').textContent = gameState.theme?.title || titles[gameState.style] || titles.quest;
-  $('game-status').textContent = gameState.status === 'waiting' ? 'ChatGPT 正在看圖準備題目，完成後就在這裡開始。'
-    : gameState.status === 'error' ? '題目暫時沒有準備完成，請重試。'
-    : gameState.complete ? '這張圖的挑戰完成了！你可以餵夥伴點心，或再玩一次。'
+  $('game-status').textContent = gameState.status === 'error' ? '請選一個主題重新開始。'
+    : gameState.complete ? '這一輪挑戰完成了！你可以餵夥伴點心、換主題，或再玩一次。'
     : gameState.theme?.instruction || '先記住，再拼字，最後練句型。一次完成一個小挑戰。';
+  const material = gameState.material;
+  $('game-material').textContent = material ? material.title + ' · ' + (material.source === 'builtin' ? '內建題庫' : material.source === 'image' ? '本機圖片辨識' : '自己的英文教材')
+    + (material.foundationPatterns ? ` · ${material.foundationPatterns} 題內建基礎句型` : '') : '';
+  if (previousRound !== gameState.round && material?.source === 'builtin') $('game-topic').value = material.id;
   $('game-error').textContent = gameState.error || gameState.message || '';
   $('game-error').hidden = gameState.status !== 'error' || !$('game-error').textContent;
   $('game-play').hidden = gameState.status !== 'ready';
@@ -188,7 +204,7 @@ function renderGame(value) {
   }
   $('game-puzzle-label').textContent = `已揭開 ${revealed} / ${pieceTotal} 片拼圖`;
   renderGameControls(); renderImageControls();
-  if (previousStatus === 'waiting' && gameState.status === 'ready' && !$('image-panel').hidden && selectedImageMode() === 'vocabulary') {
+  if (previousRound !== undefined && previousRound !== gameState.round && gameState.status === 'ready' && !$('image-panel').hidden && selectedImageMode() === 'vocabulary') {
     requestAnimationFrame(() => $('image-game').scrollIntoView({ block: 'nearest', behavior: 'instant' }));
   }
 }
@@ -199,10 +215,14 @@ async function gameAction(action) {
   catch { toast('這個操作暫時無法完成，請再試一次。'); }
   finally { gamePending = false; renderGameControls(); }
 }
+let lastRecognizedText = '';
 function renderImageLesson(value) {
   if (!value || typeof value !== 'object') return;
-  imageLesson = { image: null, mode: 'conversation', status: 'idle', error: '', message: '', ...value };
+  imageLesson = { image: null, mode: 'vocabulary', status: 'idle', error: '', message: '', ...value };
   imageStateSeen = true;
+  if (typeof imageLesson.text === 'string' && imageLesson.text !== lastRecognizedText) {
+    $('game-text').value = imageLesson.text; lastRecognizedText = imageLesson.text;
+  }
   const image = imageLesson.image;
   $('image-preview-card').hidden = !image;
   const preview = typeof image?.preview === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/.test(image.preview) ? image.preview : '';
@@ -214,7 +234,7 @@ function renderImageLesson(value) {
   $('image-metadata').textContent = Number.isFinite(image?.width) && Number.isFinite(image?.height) ? `${image.width} × ${image.height}` : '';
   const messages = {
     idle: image ? '圖片已載入，選好模式後即可開始。' : '準備好圖片後，按上方按鈕開始。',
-    preparing: '正在準備圖片…', uploading: '正在將圖片加入 ChatGPT…',
+    ready: '本機遊戲已就緒。', preparing: '正在準備圖片…', uploading: '正在將圖片加入 ChatGPT…',
     sending: '正在傳送圖片與學習指令…',
     sent: '學習指令已送出。請在左側查看 ChatGPT 回覆，繼續練習。',
     error: '這次操作尚未完成，請查看下方說明後重試。', cancelled: '已取消本次操作。'
@@ -347,7 +367,7 @@ for (const name of ['dictionary', 'image']) {
     showLearningTab(next); $(next + '-tab').focus();
   });
 }
-$('image-learning').addEventListener('click', () => { showLearningTab('image'); $('image-pick').focus(); });
+$('image-learning').addEventListener('click', () => { showLearningTab('image'); $('game-topic-start').focus(); });
 $('image-modes').addEventListener('change', renderImageControls);
 $('image-characters').addEventListener('change', renderImageControls);
 $('image-game-styles').addEventListener('change', renderImageControls);
@@ -358,6 +378,13 @@ $('image-cancel').addEventListener('click', async () => {
   try { await window.milo.cancelImageLesson(); }
   catch { toast('暫時無法取消，請稍後重試。'); }
 });
+$('game-topic-start').addEventListener('click', () => imageAction(() => window.milo.startGameTopic($('game-topic').value, selectedGameStyle(), selectedImageCharacter())));
+$('game-text-start').addEventListener('click', () => imageAction(async () => {
+  $('game-text-error').hidden = true;
+  const response = await window.milo.startGameText($('game-text').value, selectedGameStyle(), selectedImageCharacter());
+  if (response?.error) { $('game-text-error').textContent = response.error; $('game-text-error').hidden = false; }
+  return response;
+}));
 $('game-answer-form').addEventListener('submit', event => { event.preventDefault(); if (!$('game-submit').disabled) void gameAction(() => window.milo.answerGame($('game-answer').value)); });
 $('game-clear-answer').addEventListener('click', () => { $('game-answer').value = ''; usedGameLetters.clear(); renderGameControls(); $('game-answer').focus(); });
 $('game-hint').addEventListener('click', () => gameAction(() => window.milo.hintGame()));
@@ -386,6 +413,7 @@ window.milo.on(({ type, data }) => {
     if (data.error) { $('chinese').textContent = '翻譯暫時無法完成。'; $('translation-error').textContent = data.error; $('translation-error').hidden = false; }
   }
 });
+showLearningTab('image');
 window.milo.state().then(renderState);
 new ResizeObserver(bounds).observe($('chat-host'));
 window.addEventListener('resize', bounds);

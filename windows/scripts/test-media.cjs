@@ -167,6 +167,7 @@ async function sample(phase, extra = {}) {
     await sample('playing');
 
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.focus());
+    await page.locator('#dictionary-tab').click();
     await page.locator('#search').fill('new'); await page.locator('#search').press('Enter');
     await page.waitForSelector('#lookup:not([hidden])');
     await page.locator('#microphone').click(); // Footer setting changes must not stop an existing stream.

@@ -3,7 +3,6 @@
 const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, powerSaveBlocker } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { randomUUID } = require('node:crypto');
 const { isChatURL, isLoginURL, isExternalURL, normalizeSelection, isWord } = require('./policy.cjs');
 const { loadDictionary } = require('./dictionary.cjs');
 const { readSettings, writeSettings } = require('./settings.cjs');
@@ -11,22 +10,24 @@ const { Translation } = require('./translation.cjs');
 const { NativeSpeech, validateWave } = require('./speech.cjs');
 const { createMediaPermissions } = require('./media-permissions.cjs');
 const { attachMediaPower } = require('./media-power.cjs');
-const { buildLessonPrompt, IMAGE_GAME_STYLES } = require('./image-lessons.cjs');
+const { buildLessonPrompt, validateLessonOptions, IMAGE_GAME_STYLES } = require('./image-lessons.cjs');
 const { prepareLessonImage } = require('./image-files.cjs');
 const { sendImageLesson } = require('./image-chat.cjs');
-const { createGamePackReader } = require('./game-pack-reader.cjs');
-const { parseGamePack, createGame } = require('./learning-game.cjs');
+const { ImageOCR } = require('./image-ocr.cjs');
+const { GAME_TOPICS, builtinMaterial, materialFromText } = require('./game-material.cjs');
+const { createGame } = require('./learning-game.cjs');
 
 const CHAT_URL = 'https://chatgpt.com/';
 const TEST = !app.isPackaged && process.env.MILO_TEST_MODE === '1';
 if (TEST && process.env.MILO_TEST_DATA) app.setPath('userData', process.env.MILO_TEST_DATA);
 app.setName('Milo English');
-let main, chat, settings, translator, speech, dictionaryPromise, awake, releaseMediaPower;
+let main, chat, settings, translator, speech, dictionaryPromise, awake, releaseMediaPower, imageOCR;
 let sequence = 0, currentLookup = null, closing = false;
 let chatLoadFailed = false;
 let lessonImage = null, lessonAbort = null, lessonJob = null, lessonRequest = 0;
 const retiredImageDirectories = new Set();
-const imageLesson = { image: null, mode: 'conversation', character: 'kuromi', style: 'quest', status: 'idle', message: '', error: '' };
+const imageLesson = { image: null, mode: 'vocabulary', character: 'kuromi', style: 'quest', status: 'idle', message: '遊戲已就緒，可直接選主題開始；也能載入英文教材圖片。', error: '', text: '', confidence: null };
+let gameMaterial = null, gameRound = 0;
 let game = null, gamePack = null, gameStatus = 'idle', gameError = '', gameStyle = 'quest', gameCharacter = 'kuromi';
 const state = { version: app.getVersion(), loading: true, error: '', zoom: 1, focus: true,
   dictionary: false, translationReady: false, preparing: false };
@@ -49,7 +50,7 @@ async function disposeLessonImage(image) {
 }
 function gameSnapshot() {
   const current = game?.snapshot();
-  return { status: gameStatus, error: gameError, character: gameCharacter, style: gameStyle,
+  return { status: gameStatus, error: gameError, character: gameCharacter, style: gameStyle, round: gameRound, material: gameMaterial, topics: GAME_TOPICS,
     task: current?.task ? { ...current.task, kind: current.phase } : null,
     progress: { completed: current?.progress.completed || 0, total: current?.progress.total || 0,
       stars: current?.rewards.stars || 0, food: current?.rewards.food || 0, petEnergy: current?.rewards.fed || 0 },
@@ -59,63 +60,60 @@ function gameSnapshot() {
     mastered: current?.rewards.mastered || 0, assisted: current?.rewards.assisted || 0 };
 }
 function publishGame(status = gameStatus, error = '') { gameStatus = status; gameError = error; emit('game', gameSnapshot()); }
-function clearGame() { game = null; gamePack = null; speech?.stop(); emit('stop-speech', null); publishGame('idle'); }
+function useGameMaterial(prepared, style = gameStyle, character = gameCharacter) {
+  const next = createGame(prepared.pack, style);
+  speech?.stop(); emit('stop-speech', null);
+  game = next; gamePack = prepared.pack; gameMaterial = prepared.material;
+  gameStyle = style; gameCharacter = character; gameRound++; publishGame('ready');
+}
 async function stopImageJob() {
   lessonAbort?.abort();
   if (lessonJob) await lessonJob.catch(() => {});
 }
 async function launchImageLesson(request, mode, character, style = 'quest') {
-  const requestId = mode === 'vocabulary' ? randomUUID() : undefined;
-  const prompt = buildLessonPrompt(mode, character, style, requestId);
+  validateLessonOptions(mode, character, style);
   if (request !== lessonRequest) return {};
   if (!lessonImage) { publishImage({ status: 'error', error: '請先載入一張圖片。' }); return {}; }
   const controller = new AbortController(); lessonAbort = controller;
-  clearGame(); gameStyle = style; gameCharacter = character;
-  if (mode === 'vocabulary') publishGame('waiting');
-  publishImage({ mode, character, style, status: 'uploading', error: '', message: '正在準備 ChatGPT 圖片教學…' });
+  const local = mode === 'vocabulary';
+  publishImage({ mode, character, style, status: local ? 'preparing' : 'uploading', error: '',
+    message: local ? '正在這台電腦辨識英文文字，原本的遊戲仍可繼續玩…' : '正在準備 ChatGPT 圖片教學…' });
   lessonJob = (async () => {
-    let reader;
     try {
-      if (!chat || chat.webContents.isDestroyed() || !isChatURL(chat.webContents.getURL())) throw new Error('請先登入 ChatGPT，再開始圖片學習。');
-      // Picture quizzes and spelling need a visible text box for the next turn.
-      // Keep the displayed focus setting truthful and let the user switch back.
+      if (local) {
+        const recognized = await imageOCR.recognize(lessonImage.filePath, { signal: controller.signal,
+          onProgress: progress => { if (request === lessonRequest) publishImage({ message: `本機英文辨識 ${progress}%…` }); } });
+        if (request !== lessonRequest || controller.signal.aborted) return {};
+        publishImage({ text: recognized.text, confidence: recognized.confidence });
+        if (recognized.confidence < 30) throw new Error('圖片文字不夠清楚。請修正下方辨識文字後開始，或選內建主題繼續玩。');
+        const dictionary = await dictionaryPromise;
+        if (request !== lessonRequest || controller.signal.aborted) return {};
+        const prepared = materialFromText(recognized.text, dictionary, 'image');
+        useGameMaterial(prepared, style, character);
+        publishImage({ status: 'ready', error: '', message: `已從圖片整理 ${prepared.pack.words.length} 個單字，直接在右側開始！辨識文字可自行修改。` });
+        return {};
+      }
+      if (!chat || chat.webContents.isDestroyed() || !isChatURL(chat.webContents.getURL())) throw new Error('請先登入 ChatGPT，再使用 AI 圖片教學。');
       if (settings.focus) { settings.focus = false; save(); publish({ focus: false }); }
       await applyMode();
       await chat.webContents.executeJavaScript("window.__miloCompactComposerV1?.stop()");
-      // Install before sending so a fast new reply is never confused with old
-      // conversation history. No reader remains active during local gameplay.
-      if (mode === 'vocabulary') reader = await createGamePackReader(chat.webContents, { signal: controller.signal, requestId, expectedPrompt: prompt });
-      await sendImageLesson(chat.webContents, lessonImage.filePath, prompt, { signal: controller.signal,
+      await sendImageLesson(chat.webContents, lessonImage.filePath, buildLessonPrompt(mode, character, style), { signal: controller.signal,
         onStatus: (status, message) => { if (request === lessonRequest) publishImage({ status, message }); } });
-      if (reader) {
-        if (request === lessonRequest) publishImage({ status: 'preparing', error: '', message: '圖片已送出，正在依圖片準備遊戲單字與句型…' });
-        const text = await reader.result;
-        if (request !== lessonRequest || controller.signal.aborted) return {};
-        const preparedPack = parseGamePack(text);
-        await reader.conceal?.(prompt);
-        if (request !== lessonRequest || controller.signal.aborted) return {};
-        gamePack = preparedPack; game = createGame(gamePack, style);
-        publishGame('ready');
-      }
-      if (request === lessonRequest) publishImage({ status: 'sent', error: '', message: reader ? '遊戲已準備好，直接在下方答題、解謎或餵點心。' : '圖片與學習指令已送出，ChatGPT 將從圖片開始教學。' });
+      if (request === lessonRequest) publishImage({ status: 'sent', error: '', message: '圖片已送到 ChatGPT，AI 將輔助對話、講解或測驗；本機遊戲可隨時繼續。' });
     } catch (error) {
-      if (request === lessonRequest) {
-        if (mode === 'vocabulary') publishGame(error.name === 'AbortError' ? 'idle' : 'error', error.name === 'AbortError' ? '' : error.message);
-        publishImage(error.name === 'AbortError'
-          ? { status: 'cancelled', error: '', message: '已停止自動操作；已附加的圖片或文字可能仍在 ChatGPT 輸入區，請檢查後再試。' }
-          : { status: 'error', error: error.message, message: '本次課程尚未完成。請檢查 ChatGPT 回覆與輸入區，再決定是否重試。' });
-      }
+      if (request === lessonRequest) publishImage(error.name === 'AbortError'
+        ? { status: 'cancelled', error: '', message: local ? '已取消本機辨識，原本的遊戲保留。' : '已停止傳送；請檢查 ChatGPT 輸入區後再試。' }
+        : { status: 'error', error: error.message, message: local ? '原本的遊戲仍可繼續；可以修改辨識文字，或選內建主題。' : 'AI 教學尚未完成，本機遊戲不受影響。' });
     } finally {
-      await reader?.stop();
       if (lessonAbort === controller) lessonAbort = null;
-      if (!closing) await applyMode();
+      if (!closing && !local) await applyMode();
     }
     return {};
   })();
   return lessonJob;
 }
 async function pickLessonImage(mode, character = 'kuromi', style = 'quest') {
-  buildLessonPrompt(mode, character, style);
+  validateLessonOptions(mode, character, style);
   const request = ++lessonRequest;
   await stopImageJob();
   if (request !== lessonRequest) return {};
@@ -130,7 +128,7 @@ async function pickLessonImage(mode, character = 'kuromi', style = 'quest') {
     prepared = await prepareLessonImage(picked.filePaths[0]);
     if (request !== lessonRequest || closing) { await disposeLessonImage(prepared); return {}; }
     const old = lessonImage; lessonImage = prepared;
-    publishImage({ image: { name: prepared.name, preview: prepared.preview, width: prepared.width, height: prepared.height } });
+    publishImage({ image: { name: prepared.name, preview: prepared.preview, width: prepared.width, height: prepared.height }, text: '', confidence: null });
     await disposeLessonImage(old);
     return launchImageLesson(request, mode, character, style);
   } catch (error) {
@@ -231,7 +229,7 @@ function protectNavigation(contents) {
   contents.on('did-create-window', child => protectNavigation(child.webContents));
 }
 function loadChat(url = CHAT_URL) {
-  lessonAbort?.abort();
+  if (imageLesson.mode !== 'vocabulary') lessonAbort?.abort();
   clearLookup();
   chatLoadFailed = false;
   publish({ loading: true, error: '' });
@@ -248,7 +246,7 @@ function installIPC() {
   ipcMain.handle('shell:image-start', async (event, mode, character = 'kuromi', style = 'quest') => {
     if (!isShell(event)) return {};
     try {
-      buildLessonPrompt(mode, character, style);
+      validateLessonOptions(mode, character, style);
       const request = ++lessonRequest;
       await stopImageJob();
       return launchImageLesson(request, mode, character, style);
@@ -259,8 +257,7 @@ function installIPC() {
     const request = ++lessonRequest;
     await stopImageJob();
     if (request === lessonRequest) {
-      if (gameStatus === 'waiting') publishGame('idle');
-      publishImage({ status: 'cancelled', error: '', message: '已取消自動操作。已送出的內容會留在 ChatGPT，請檢查以免重複傳送。' });
+      publishImage({ status: 'cancelled', error: '', message: imageLesson.mode === 'vocabulary' ? '已取消本機辨識，原本的遊戲保留。' : '已取消自動操作，請檢查 ChatGPT 輸入區。' });
     }
     return {};
   });
@@ -270,9 +267,8 @@ function installIPC() {
     await stopImageJob();
     if (request !== lessonRequest) return {};
     const old = lessonImage; lessonImage = null;
-    clearGame();
     await disposeLessonImage(old);
-    publishImage({ image: null, status: 'idle', error: '', message: '已清除本機圖片預覽；ChatGPT 對話中的圖片不會因此刪除。' });
+    publishImage({ image: null, text: '', confidence: null, status: 'idle', error: '', message: '已移除圖片預覽，本輪遊戲保留。' });
     return {};
   });
   ipcMain.handle('shell:lookup', (event, text) => isShell(event) ? lookup(text) : {});
@@ -288,7 +284,7 @@ function installIPC() {
   for (const [channel, method] of [['answer', 'answer'], ['hint', 'hint'], ['next', 'next'], ['feed', 'feed']]) {
     ipcMain.handle('shell:game-' + channel, (event, value) => {
       if (!isShell(event)) return {};
-      if (!game || gameStatus !== 'ready') return { error: '請先載入圖片，等待遊戲題目準備完成。' };
+      if (!game || gameStatus !== 'ready') return { error: '請先選擇內建主題或輸入英文教材。' };
       if (method === 'answer' && (typeof value !== 'string' || value.length > 200)) return { error: '請輸入 200 字元以內的答案。' };
       try {
         speech.stop(); emit('stop-speech', null);
@@ -297,14 +293,28 @@ function installIPC() {
     });
   }
   ipcMain.handle('shell:game-speak', event => renderSpeech(event, game && gameStatus === 'ready' ? game.speechText() : null));
+  for (const source of ['topic', 'text']) ipcMain.handle('shell:game-' + source, async (event, value, style = gameStyle, character = gameCharacter) => {
+    if (!isShell(event)) return {};
+    try {
+      validateLessonOptions('vocabulary', character, style);
+      if (source === 'topic') builtinMaterial(value);
+      else require('./game-material.cjs').lessonText(value);
+      const request = ++lessonRequest;
+      await stopImageJob();
+      const prepared = source === 'topic' ? builtinMaterial(value) : materialFromText(value, await dictionaryPromise, 'text');
+      if (request !== lessonRequest || closing) return {};
+      useGameMaterial(prepared, style, character);
+      publishImage({ status: 'ready', error: '', message: source === 'topic' ? '內建題庫已就緒，直接開始玩！' : '已用這份英文教材建立本機題目。' });
+      return {};
+    } catch (error) { return { error: error.message }; }
+  });
   ipcMain.handle('shell:game-restart', (event, style = gameStyle, character = gameCharacter) => {
     if (!isShell(event)) return {};
-    if (!gamePack || gameStatus !== 'ready') return { error: '請先準備一份有效的圖片遊戲教材。' };
+    if (!gamePack || gameStatus !== 'ready') return { error: '請先選擇一個遊戲主題。' };
     try {
-      buildLessonPrompt('vocabulary', character, style);
+      validateLessonOptions('vocabulary', character, style);
       speech.stop(); emit('stop-speech', null);
-      game = createGame(gamePack, style); gameStyle = style; gameCharacter = character;
-      publishGame('ready'); return {};
+      useGameMaterial({ pack: gamePack, material: gameMaterial }, style, character); return {};
     } catch { return { error: '請選擇有效的遊戲玩法與角色。' }; }
   });
   ipcMain.handle('shell:prepare', async event => {
@@ -358,6 +368,8 @@ function installIPC() {
 async function createWindow() {
   settings = readSettings(app.getPath('userData'));
   speech = new NativeSpeech();
+  imageOCR = new ImageOCR();
+  useGameMaterial(builtinMaterial());
   Object.assign(state, { focus: settings.focus, zoom: settings.zoom });
   translator = new Translation(path.join(app.getPath('userData'), 'translation-model'),
     progress => emit('progress', progress));
@@ -432,7 +444,7 @@ async function createWindow() {
       catch { void image.dispose().catch(() => {}); }
     }
     [settings.width, settings.height] = main.getSize(); save();
-    translator.close(); speech.stop(); emit('stop-speech', null);
+    imageOCR.close(); translator.close(); speech.stop(); emit('stop-speech', null);
     releaseMediaPower?.();
     if (chat && !chat.webContents.isDestroyed()) chat.webContents.close();
     for (const directory of retiredImageDirectories) {
@@ -461,7 +473,6 @@ async function selfTest() {
     const dictionary = await loadDictionary(assets);
     const entry = dictionary.lookup('new');
     if (!entry?.kk || !entry.chinese.includes('新的')) throw new Error('Bundled dictionary lookup failed');
-    dictionary.close();
     // Exercise actual packaged sharp/native files using a local selected-image
     // equivalent, without a ChatGPT account or a network upload.
     const imageSource = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'milo-image-self-test-'));
@@ -470,11 +481,20 @@ async function selfTest() {
       const source = path.join(imageSource, 'sample.png');
       fs.writeFileSync(source, fs.readFileSync(path.join(__dirname, '..', 'assets', 'icon.png')));
       preparedImage = await prepareLessonImage(source);
-      if (!preparedImage.preview.startsWith('data:image/jpeg;base64,') || !buildLessonPrompt('vocabulary', 'cinnamoroll').includes('大耳狗')) throw new Error('Packaged image learning failed');
+      if (!preparedImage.preview.startsWith('data:image/jpeg;base64,') || !builtinMaterial().pack.words.length) throw new Error('Packaged image learning failed');
       for (const character of ['kuromi', 'cinnamoroll']) if (!fs.existsSync(path.join(__dirname, '..', 'assets', 'game-' + character + '.png'))) throw new Error('Missing game character artwork');
     } finally { await preparedImage?.dispose(); fs.rmSync(imageSource, { recursive: true, force: true }); }
     const imageLearning = { normalized: true, width: preparedImage.width, height: preparedImage.height, characters: ['kuromi', 'cinnamoroll'] };
-    const demoPack = parseGamePack(buildLessonPrompt('vocabulary'));
+    const localOCR = new ImageOCR();
+    let recognized;
+    try { recognized = await localOCR.recognize(path.join(__dirname, '..', 'assets', 'ocr-sample.png')); }
+    finally { localOCR.close(); }
+    if (!/breakfast/i.test(recognized.text)) throw new Error('Packaged local English OCR failed');
+    const localMaterial = materialFromText(recognized.text, dictionary, 'image');
+    if (localMaterial.pack.words.length < 3) throw new Error('Packaged local game material failed');
+    const localGames = { builtinTopics: GAME_TOPICS.length, localOCR: true, imageWords: localMaterial.pack.words.map(item => item.word), noAIRequired: true };
+    dictionary.close();
+    const demoPack = builtinMaterial().pack;
     const nativeGameStyles = IMAGE_GAME_STYLES.map(({ id }) => {
       const instance = createGame(demoPack, id);
       if (!instance.snapshot().task || !instance.speechText()) throw new Error('Packaged native game failed');
@@ -498,7 +518,7 @@ async function selfTest() {
       if (!/[\u4e00-\u9fff]/.test(translation) || /[这书]/.test(translation)) throw new Error('Packaged offline translation failed');
     }
     if (report) fs.writeFileSync(report, JSON.stringify({ ok: true, platform: process.platform,
-      arch: process.arch, version: app.getVersion(), dictionary: entry, translation, nativeSpeech, imageLearning, nativeGameStyles }, null, 2));
+      arch: process.arch, version: app.getVersion(), dictionary: entry, translation, nativeSpeech, imageLearning, nativeGameStyles, localGames }, null, 2));
     service?.close(); app.exit(0);
   } catch (error) {
     if (report) fs.writeFileSync(report, JSON.stringify({ ok: false, error: error.message, cause: String(error.cause || '') }, null, 2));
@@ -513,5 +533,5 @@ else {
     dialog.showErrorBox('Milo 無法啟動', String(error.message)); app.quit();
   });
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => { translator?.close(); speech?.stop(); });
+  app.on('before-quit', () => { imageOCR?.close(); translator?.close(); speech?.stop(); });
 }

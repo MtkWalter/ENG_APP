@@ -52,6 +52,8 @@ async function clickChat(selector) {
       env: { ...process.env, MILO_TEST_MODE: '1', MILO_TEST_DATA: data }, timeout: 60000 });
     const page = await app.firstWindow();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 900));
+    await page.waitForSelector('#dictionary-tab');
+    await page.locator('#dictionary-tab').click();
     await page.waitForSelector('#search');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
