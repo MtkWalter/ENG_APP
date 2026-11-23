@@ -1,37 +1,37 @@
-# Milo 2.0.4 將輸入／語音操作列移到上方
+# Milo 2.0.5 上方操作列相容性與語音排版效能
 
-[OPPO Reno13 Pro 下載（arm64，約 24 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.4-arm64.apk)
+[OPPO Reno13 Pro 下載（arm64，約 24 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.5-arm64.apk)
 
-[其他架構通用 APK（約 71 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.4.apk)
+[其他架構通用 APK（約 71 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.5.apk)
 
-版本代碼 20，Android 8.0 以上，與 2.0.3 相同簽章，可直接覆蓋更新。
+版本代碼 21，Android 8.0 以上，與 2.0.4 相同簽章，可直接覆蓋更新。
 
-## 上方操作，下方對話
+## 操作區移到上方
 
-可辨識的網頁輸入／語音操作列固定在 App 上方，位於原生「新對話、A−、A+」列下方。保留目前精簡的麥克風、語音及必要的送出／停止按鈕，文字編輯區、附件及模型選單保持隱藏。
+使用者截圖中的完整輸入框仍在底部。本次修正兩種在 2.0.4 失敗的重現：網站限制新增無 nonce 的樣式表，以及輸入框沒有舊識別碼。兩種都會造成相同症狀，但尚未確認手機現行網站是哪一種原因。
 
-對話捲動區預留上方操作列的高度，新對話從操作列下方開始。AI 正在回覆時持續跟隨末行，利用下方螢幕空間。操作列重新建立、語音狀態、畫面旋轉和控制高度變動時會重新計算。
+透過可還原的 CSSOM 屬性設定套用排版，並辨識語意輸入框，不修改網站安全政策。操作列固定在原生「新對話、A−、A+」列下方，對話使用下方空間。延續精簡控制、原麥克風／語音事件、查字及字體調整；非聊天表單保持可用。
 
-調整原有網頁節點的位置，保留原按鈕和事件，不搬移或複製 React 節點，不更動帳號或語音 API。適用 Milo 內嵌網頁，外部 Chrome 由瀏覽器控制。
+## 降低語音對話時的額外排版工作
 
-## 沿用學習功能
+長回覆改由末端找文字；捲到底部按鈕先比對明確標籤，再量測樣式，避免每次遍歷歷史按鈕。操作列也不再因 AI 文字節點的更新而掃描整頁。保留同一輪回覆的逐畫面位置追蹤，不等下一輪才調整。
 
-點英文單字可顯示「英文 → KK 音標 → 繁體中文」小視窗，免 API key；長按可選整句，整句不顯示 KK。保留朗讀及 0.5 倍慢讀。
+相同本機 Chromium 測試（100 輪歷史對話、每輪 5 個操作按鈕、當前回覆 180 段、30 次即時更新）中，樣式讀取 139,854→1,460 次、文字範圍量測 8,326→46 次，約少 99%。這是 DOM 工作量，不能當作手機加速比例或語音不卡頓的保證；尚未量測 OPPO 音訊、網路、網站回應或手機幀率。
 
-內建約 125,112 筆美式發音與 100,497 筆英中釋義，收錄範圍不完全相同。KK 由 CMUdict 美式 ARPABET 轉寫，採 KK 記號與音節起首規則放置重音，並非 Yahoo 原始 KK。缺少發音不猜測；中文釋義來自 ECDICT，建置時轉為繁體。來源及授權見 [DICTIONARY-LICENSES.txt](DICTIONARY-LICENSES.txt)。
+## 學習功能沿用
 
-整句及缺少釋義的詞使用 Google ML Kit 裝置端翻譯，首次需下載語言模型，之後可離線使用。Android 10 以上轉成繁體，Android 8／9 沿用模型中文。亮屏與麥克風系統授權流程沿用。
+點英文單字顯示「英文 → KK 音標 → 繁體中文」小視窗；整句不顯示 KK。保留朗讀及 0.5 倍慢讀。內建約 125,112 筆美式發音與 100,497 筆英中釋義，收錄範圍不完全相同。
 
-## 本次驗證
+KK 由 CMUdict 美式 ARPABET 轉寫，並非 Yahoo 原始 KK；中文詞義來自 ECDICT，建置時轉繁體，缺少發音不猜測。來源及授權見 [DICTIONARY-LICENSES.txt](DICTIONARY-LICENSES.txt)。整句及缺少釋義的詞使用 Google ML Kit 裝置端翻譯，首次需下載模型，免 API key。亮屏與麥克風系統授權流程沿用。
 
-58 項 Chromium 檢查通過，含 36 項對話／選字、6 項語音球、16 項精簡操作列。涵蓋上方定位、原按鈕可點擊、短對話避讓、路由重新建立、旋轉／放大、還原底部位置，以及同一輪持續回覆中末字的點位命中。
+## 驗證
 
-另有 11 項針對網頁腳本及語音生命週期的 Android/JVM 測試通過；本次未重跑完整 Android 測試套件。正式 Android 腳本、APK 資產與測試來源相符。
+63 項 Chromium 檢查通過（36 對話／選字、19 操作列、6 語音球、2 效能回歸），另有 11 項網頁腳本／語音生命週期 Android/JVM 測試通過。本次未重跑完整 Android 測試套件。Lint 0 錯誤、3 項既有提示。
 
-檢查使用本機合成頁面，尚未在 OPPO 手機或目前真實 ChatGPT 網站實測；手機效果仍需更新後確認。APK 編譯成功，Lint 0 錯誤、3 項既有提示，兩種 APK 的簽章與 16 KB ZIP 對齊檢查通過。
+帶 nonce 的合成頁面中，操作區 y=564→0，原麥克風與語音事件可點擊。正式 Android 腳本與 APK 資產相符，簽章及 16 KB ZIP 對齊檢查通過。這些均為本機合成頁檢查，尚未在 OPPO 或目前真實 ChatGPT 網站實測。
 
-arm64：24,730,266 bytes，SHA-256 `b0011fcc4f3a4e1444976ef99c03714f4e76b91698fd9bf49c28760e1b4080bc`。
+arm64：24,731,206 bytes，SHA-256 `0a765d1d4d91a89ef3cce1ed4f7e5d5b8d7e7bc2b11e6b28b47dcb25e04fa75d`。
 
-通用版：70,993,688 bytes，SHA-256 `f59b9799026ffc9ee60b66993610495ab31d609736c5cc6e77a5e51a9ecdac35`。
+通用版：70,994,628 bytes，SHA-256 `b6e5d08f09185009ec591a203aea5f548ddb37de796ebc83a2dafd234db33785`。
 
-所有歷史 APK 保留。Milo-English-v1.0.apk 為最新通用版相容檔名，完整校驗碼見 SHA256SUMS。
+歷史 APK 保留；Milo-English-v1.0.apk 為最新通用版相容檔名。完整校驗碼見 SHA256SUMS。
