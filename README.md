@@ -1,4 +1,12 @@
-# Milo 2.0.5 上方操作列相容性與語音排版效能
+# Milo 2.0.6 單一麥克風
+
+[下載 OPPO Reno13 Pro 版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.6-arm64.apk) · [下載通用版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.6.apk)
+
+點上方麥克風開始連續語音。通話中點一下可靜音或恢復收音。當網站提供結束通話控制時，長按麥克風即可結束。側邊欄、分享、設定等網頁元素若與這一列重疊，App 會隱藏重疊部分，讓麥克風能收到點擊。若網站只提供結束或送出動作，按鈕顯示該動作原有的圖示。
+
+版本代碼 22，可直接覆蓋安裝。本版在手機尺寸的 Chromium 測試頁驗證過點擊、長按及控制列位置，尚未在 OPPO 實機測試。完整校驗碼見 [SHA256SUMS](SHA256SUMS)。
+
+## 歷史版本 2.0.5 上方操作列相容性與語音排版效能
 
 [OPPO Reno13 Pro 下載（arm64，約 24 MB）](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.5-arm64.apk)
 
