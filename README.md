@@ -1,4 +1,14 @@
-# Milo 2.0.6 單一麥克風
+# Milo 2.0.7
+
+[下載 OPPO Reno13 Pro 版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.7-arm64.apk) · [下載通用版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.7.apk)
+
+麥克風位於 App 工具列的 A+ 右側。點一下開始語音，通話中可點一下切換靜音。當網站提供結束通話功能時，長按即可結束。
+
+雙方訊息裡的英文以醒目配色顯示，包含混合中文的英文句子與正在產生的回覆。可用 A−、A+ 調整字級，也可直接點英文單字或長按選句查詢。
+
+版本代碼 23，可直接覆蓋安裝。已在自動化測試中驗證工具列排列、語音控制與英文標示，尚未在 OPPO 實機測試。檔案校驗碼見 [SHA256SUMS](SHA256SUMS)。
+
+## 歷史版本 2.0.6 單一麥克風
 
 [下載 OPPO Reno13 Pro 版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.6-arm64.apk) · [下載通用版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.6.apk)
 
