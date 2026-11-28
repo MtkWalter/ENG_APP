@@ -1,4 +1,12 @@
-# Milo 2.0.7
+# Milo 2.0.8
+
+[下載 OPPO Reno13 Pro 版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.8-arm64.apk) · [下載通用版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.8.apk)
+
+對話頁收起「續訂」整列，對話文字可使用騰出的空間。A+ 右邊的麥克風平時為淺藍色，暫停收音時變紅並顯示斜線，恢復收音後回到淺藍色。
+
+版本代碼 24，可直接覆蓋安裝。已驗證 Android 圖示與手機尺寸瀏覽器測試頁，尚未在 OPPO 真機驗證。檔案校驗碼見 [SHA256SUMS](SHA256SUMS)。
+
+## 歷史版本 2.0.7
 
 [下載 OPPO Reno13 Pro 版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.7-arm64.apk) · [下載通用版](https://raw.githubusercontent.com/MtkWalter/ENG_APP/apk-download/Milo-English-v2.0.7.apk)
 
